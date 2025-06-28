@@ -1,12 +1,33 @@
-from llama_cpp import Llama
 import requests
 
-# Load LLM
-llm = Llama(
-    model_path="models/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-    n_ctx=2048,
-    verbose=False
-)
+# Groq API Setup
+GROQ_API_KEY = "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"
+
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7
+    }
+    res = requests.post(url, headers=headers, json=data)
+    try:
+        response_json = res.json()
+        if "choices" in response_json:
+            return response_json["choices"][0]["message"]["content"]
+        else:
+            print("Groq API error:", response_json)
+            return "Sorry, there was a problem with the Groq API: " + str(response_json)
+    except Exception as e:
+        print("Groq error response:", res.status_code, res.text)
+        raise
 
 # Zoey's tone
 system_message = """Act as Zoey. You’re texting David. Sound like a real person — casual, clear, never robotic. Don’t repeat things or speak for David. Always respond like it’s your turn in a chat."""
@@ -64,8 +85,7 @@ while True:
     recent_history = "\n".join(conversation_history[-6:])
     prompt = f"{system_message}\n\n{recent_history}\nZoey:"
 
-    response = llm(prompt)
-    reply = response["choices"][0]["text"].strip().split("\n")[0]
+    reply = call_groq(prompt).strip().split("\n")[0]
 
     print("\nZoey:", reply, "\n")
     conversation_history.append(f"Zoey: {reply}")

@@ -1,4 +1,3 @@
-from llama_cpp import Llama
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, simpledialog
 from memory.memory_utils import (
@@ -15,19 +14,12 @@ import os
 import threading
 import re
 import datetime
+import requests
 
 print("Python version:", sys.version)
 print("Current working directory:", os.getcwd())
 print("Listing models directory:")
 print(os.listdir("models"))
-print("Loading model...")
-# Load LLM
-llm = Llama(
-    model_path="models/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-    n_ctx=4096,  # Increased from 2048 to 4096 for longer context and responses
-    verbose=False
-)
-print("Model loaded!")
 
 # System prompt
 system_message = (

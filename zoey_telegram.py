@@ -2,7 +2,6 @@
 
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-from llama_cpp import Llama
 import json
 import os
 import string
@@ -15,12 +14,35 @@ import time as time_module
 # 🔑 Replace this with your actual token from BotFather
 BOT_TOKEN = "7502524168:AAGqHOdpPIYQ1K9GObnK9w9o0xVka5b7Gy8"
 
-# Load Mistral model once at startup
-llm = Llama(
-    model_path="models/mistral-7b-instruct-v0.2.Q4_K_M.gguf",
-    n_ctx=4096,
-    verbose=False
-)
+# 🧠 Groq API Setup
+GROQ_API_KEY = "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"
+
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.1-8b-instant",  # updated to your chosen model
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7
+    }
+    res = requests.post(url, headers=headers, json=data)
+    try:
+        response_json = res.json()
+        if "choices" in response_json:
+            return response_json["choices"][0]["message"]["content"]
+        else:
+            print("Groq API error:", response_json)
+            return "Sorry, there was a problem with the Groq API: " + str(response_json)
+    except Exception as e:
+        print("Groq error response:", res.status_code, res.text)
+        raise
+
 
 # System prompt for Zoey
 system_message = (
@@ -52,31 +74,23 @@ def save_memory(memory):
         json.dump(memory, f, indent=2, ensure_ascii=False)
 
 def extract_fact(user_name, user_input):
-    # Remove trailing punctuation and extra spaces
     cleaned_input = user_input.strip().rstrip(string.punctuation)
     lowered = cleaned_input.lower()
-    # List of common question words
     question_words = (
         "what", "who", "when", "where", "why", "how", "is", "are", "do", "does", "did", "can", "could", "would", "should", "will", "am", "was", "were", "may", "might", "shall", "have", "has", "had"
     )
-    # Don't save questions or commands as facts
     if cleaned_input.endswith("?") or cleaned_input.startswith("/") or lowered.startswith(question_words):
         return None
-    # Pattern-based facts (still supported)
     if lowered.startswith("i am "):
-        fact = cleaned_input[5:].strip()
-        return f"{user_name} is {fact}"
+        return f"{user_name} is {cleaned_input[5:].strip()}"
     if lowered.startswith("i'm "):
-        fact = cleaned_input[4:].strip()
-        return f"{user_name} is {fact}"
+        return f"{user_name} is {cleaned_input[4:].strip()}"
     if lowered.startswith("i like "):
-        fact = cleaned_input[7:].strip()
-        return f"{user_name} likes {fact}"
+        return f"{user_name} likes {cleaned_input[7:].strip()}"
     if lowered.startswith("my ") and " is " in lowered:
         parts = cleaned_input.split(" is ", 1)
         if len(parts) == 2:
             return f"{user_name}'s {parts[0][3:]} is {parts[1].strip()}"
-    # Default: save any other statement as a fact
     return f"{user_name} said: {cleaned_input}"
 
 # Pushover credentials (replace with your actual keys)
@@ -96,7 +110,6 @@ def send_pushover_reminder(message):
         logging.error(f"Pushover error: {e}")
 
 def parse_reminder(user_input):
-    # Matches: Remind me to <task> or Remind me to <task> at <time>
     match = re.match(r"remind me to (.+?)(?: at (.+))?$", user_input, re.IGNORECASE)
     if match:
         task = match.group(1).strip(' "')
@@ -105,7 +118,6 @@ def parse_reminder(user_input):
     return None, None
 
 def schedule_reminder(task, reminder_time):
-    # Support 'in X minutes/hours/days/weeks/seconds' or HH:MM (24h)
     delay = None
     if reminder_time:
         m = re.match(r"in (\d+) (second|seconds|minute|minutes|hour|hours|day|days|week|weeks)", reminder_time)
@@ -123,7 +135,6 @@ def schedule_reminder(task, reminder_time):
             elif 'week' in unit:
                 delay = num * 60 * 60 * 24 * 7
         else:
-            # Try HH:MM (24h today)
             try:
                 from datetime import datetime, timedelta
                 now = datetime.now()
@@ -139,15 +150,15 @@ def schedule_reminder(task, reminder_time):
         send_pushover_reminder(f"Reminder: {task}")
     threading.Thread(target=send, daemon=True).start()
 
-# ✅ START command — runs when you send /start
+# ✅ START command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Zoey is online. How can I help you, David?")
 
-# 📥 Handles all text messages
+# 📥 Message handler
 async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_input = update.message.text
     user_name = (update.effective_user.first_name or "User").title()
-    # --- Reminder logic ---
+
     task, reminder_time = parse_reminder(user_input)
     if task:
         schedule_reminder(task, reminder_time)
@@ -156,10 +167,10 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await update.message.reply_text(f"Okay, I'll remind you to '{task}' via Pushover!")
         return
-    # --- Memory logic ---
+
     memory = load_memory()
     user_memories = memory.get(user_name, [])
-    # Try to extract a fact and store it
+
     fact = extract_fact(user_name, user_input)
     memory_message = None
     if fact:
@@ -174,23 +185,20 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.info(f"Fact already in memory for {user_name}: {fact}")
     else:
         logging.info(f"No fact extracted from input: {user_input}")
-    # Add user memories to prompt
+
     memory_section = "\n".join(f"- {m}" for m in user_memories)
     memory_prompt = f"\n{user_name}'s memory:\n{memory_section}\n" if user_memories else ""
     prompt = f"{system_message}{memory_prompt}{user_name}: {user_input}\nZoey:"
-    response = llm(prompt, max_tokens=128)
-    zoey_reply = response["choices"][0]["text"].strip().split("\n")[0]
+    zoey_reply = call_groq(prompt).strip().split("\n")[0]
     if memory_message:
         zoey_reply = f"{zoey_reply}\n{memory_message}"
     await update.message.reply_text(zoey_reply)
 
-# 🧠 Main loop
+# 🧠 Main
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, respond))
-
     print("Zoey Telegram Bot is running...")
     app.run_polling()
 
