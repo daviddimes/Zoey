@@ -223,8 +223,7 @@ def send_message():
 
     def llm_thread():
         prompt = build_prompt(user_input)
-        response = llm(prompt, max_tokens=128)  # Allow up to 128 tokens in Zoey's reply (shorter, faster)
-        full_reply = response["choices"][0]["text"].strip()
+        full_reply = call_groq(prompt).strip()
         # Extract thinking step if present
         if "# Thinking step:" in prompt:
             if "Zoey:" in full_reply:
@@ -309,6 +308,34 @@ memory_canvas.configure(yscrollcommand=memory_scrollbar.set)
 memory_canvas.bind("<Configure>", lambda e: memory_canvas.configure(scrollregion=memory_canvas.bbox("all")))
 memory_inner_frame = tk.Frame(memory_canvas, bg="#232526")
 memory_canvas.create_window((0, 0), window=memory_inner_frame, anchor="nw")
+
+# --- Groq API ---
+GROQ_API_KEY = "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"
+def call_groq(prompt):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    data = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.7
+    }
+    res = requests.post(url, headers=headers, json=data)
+    try:
+        response_json = res.json()
+        if "choices" in response_json:
+            return response_json["choices"][0]["message"]["content"]
+        else:
+            print("Groq API error:", response_json)
+            return "Sorry, there was a problem with the Groq API: " + str(response_json)
+    except Exception as e:
+        print("Groq error response:", res.status_code, res.text)
+        raise
 
 # Start App
 chat_frame.pack(fill="both", expand=True)
