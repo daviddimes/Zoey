@@ -12,10 +12,10 @@ import threading
 import time as time_module
 
 # 🔑 Replace this with your actual token from BotFather
-BOT_TOKEN = "7502524168:AAGqHOdpPIYQ1K9GObnK9w9o0xVka5b7Gy8"
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # 🧠 Groq API Setup
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
 def call_groq(prompt):
     url = "https://api.groq.com/openai/v1/chat/completions"
@@ -94,8 +94,8 @@ def extract_fact(user_name, user_input):
     return f"{user_name} said: {cleaned_input}"
 
 # Pushover credentials (replace with your actual keys)
-PUSHOVER_USER_KEY = "uzc58jcvu7hdf3r9dykjj55piobtub"
-PUSHOVER_API_TOKEN = "asoyjemyxuuymxq1b3o32fehd7ez1h"
+PUSHOVER_USER_KEY = os.environ.get("PUSHOVER_USER_KEY")
+PUSHOVER_API_TOKEN = os.environ.get("PUSHOVER_API_TOKEN")
 
 def send_pushover_reminder(message):
     url = "https://api.pushover.net/1/messages.json"
