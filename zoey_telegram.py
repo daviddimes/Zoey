@@ -10,6 +10,7 @@ import requests
 import re
 import threading
 import time as time_module
+import dateutil.parser
 
 # 🔑 Replace this with your actual token from BotFather
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -136,14 +137,16 @@ def schedule_reminder(task, reminder_time):
                 delay = num * 60 * 60 * 24 * 7
         else:
             try:
-                from datetime import datetime, timedelta
+                from datetime import datetime
                 now = datetime.now()
-                target = datetime.strptime(reminder_time, "%H:%M")
-                target = target.replace(year=now.year, month=now.month, day=now.day)
+                # Try parsing with dateutil for flexible time input (e.g., '10:30pm', '7:15 AM')
+                target = dateutil.parser.parse(reminder_time, default=now)
+                # If the parsed time is in the past, schedule for next day
                 if target < now:
-                    target += timedelta(days=1)
+                    target = target.replace(day=now.day + 1)
                 delay = (target - now).total_seconds()
-            except Exception:
+            except Exception as e:
+                logging.error(f"Could not parse reminder time: {reminder_time} ({e})")
                 delay = None
     def send():
         time_module.sleep(delay or 0)
