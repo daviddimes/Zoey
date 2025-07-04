@@ -166,7 +166,7 @@ def schedule_reminder(task, reminder_time):
                 delay = None
     # Use JobQueue for reminders
     def schedule_with_jobqueue(context, chat_id):
-        context.job_queue.run_once(
+        context.application.job_queue.run_once(
             lambda ctx: ctx.bot.send_message(chat_id=chat_id, text=f"⏰ Reminder: {task}"),
             delay if delay is not None and delay > 0 else 0
         )
