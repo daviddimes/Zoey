@@ -28,6 +28,7 @@ import requests
 import re
 import threading
 import time as time_module
+import datetime
 import dateutil.parser
 
 # Load environment variables from .env if present
@@ -130,47 +131,76 @@ def parse_reminder(user_input):
         return task, reminder_time
     return None, None
 
-def schedule_reminder(task, reminder_time):
-    delay = None
-    if reminder_time:
-        # Match both 'in 1 minute' and '1 minute', '5 hours', etc.
-        m = re.match(r"(?:in )?(\d+) (second|seconds|minute|minutes|hour|hours|day|days|week|weeks)", reminder_time)
-        if m:
-            num = int(m.group(1))
-            unit = m.group(2)
-            if 'second' in unit:
-                delay = num
-            elif 'minute' in unit:
-                delay = num * 60
-            elif 'hour' in unit:
-                delay = num * 60 * 60
-            elif 'day' in unit:
-                delay = num * 60 * 60 * 24
-            elif 'week' in unit:
-                delay = num * 60 * 60 * 24 * 7
-        else:
-            try:
-                from datetime import datetime, timedelta
-                now = datetime.now()
-                # Try parsing with dateutil for flexible time input (e.g., '10:30pm', '7:15 AM')
-                target = dateutil.parser.parse(reminder_time, default=now)
-                # If the parsed time is in the past, schedule for next day
-                if target < now:
-                    target = target + timedelta(days=1)
-                delay = (target - now).total_seconds()
-                if delay <= 0:
-                    logging.error(f"Parsed reminder time is not in the future: {reminder_time} (delay={delay})")
-                    delay = None
-            except Exception as e:
-                logging.error(f"Could not parse reminder time: {reminder_time} ({e})")
-                delay = None
-    # Use JobQueue for reminders
-    def schedule_with_jobqueue(context, chat_id):
-        context.application.job_queue.run_once(
-            lambda ctx: ctx.bot.send_message(chat_id=chat_id, text=f"⏰ Reminder: {task}"),
-            delay if delay is not None and delay > 0 else 0
-        )
-    return schedule_with_jobqueue
+
+# --- Persistent Reminders ---
+REMINDERS_FILE = "reminders.json"
+
+def load_reminders():
+    if os.path.exists(REMINDERS_FILE):
+        with open(REMINDERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_reminders(reminders):
+    with open(REMINDERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reminders, f, indent=2)
+
+def add_reminder(chat_id, task, due_time):
+    reminders = load_reminders()
+    reminders.append({
+        "chat_id": chat_id,
+        "task": task,
+        "due_time": due_time.isoformat()
+    })
+    save_reminders(reminders)
+
+def parse_due_time(reminder_time):
+    # Returns a datetime object for when the reminder is due
+    if not reminder_time:
+        return None
+    m = re.match(r"(?:in )?(\d+) (second|seconds|minute|minutes|hour|hours|day|days|week|weeks)", reminder_time)
+    now = datetime.datetime.now()
+    if m:
+        num = int(m.group(1))
+        unit = m.group(2)
+        if 'second' in unit:
+            return now + datetime.timedelta(seconds=num)
+        elif 'minute' in unit:
+            return now + datetime.timedelta(minutes=num)
+        elif 'hour' in unit:
+            return now + datetime.timedelta(hours=num)
+        elif 'day' in unit:
+            return now + datetime.timedelta(days=num)
+        elif 'week' in unit:
+            return now + datetime.timedelta(weeks=num)
+    else:
+        try:
+            target = dateutil.parser.parse(reminder_time, default=now)
+            if target < now:
+                target = target + datetime.timedelta(days=1)
+            return target
+        except Exception as e:
+            logging.error(f"Could not parse reminder time: {reminder_time} ({e})")
+            return None
+
+def start_reminder_polling(application):
+    async def poll_reminders():
+        while True:
+            reminders = load_reminders()
+            now = datetime.datetime.now()
+            to_send = [r for r in reminders if datetime.datetime.fromisoformat(r["due_time"]) <= now]
+            if to_send:
+                for r in to_send:
+                    try:
+                        await application.bot.send_message(chat_id=r["chat_id"], text=f"⏰ Reminder: {r['task']}")
+                    except Exception as e:
+                        logging.error(f"Failed to send reminder to {r['chat_id']}: {e}")
+                reminders = [r for r in reminders if datetime.datetime.fromisoformat(r["due_time"]) > now]
+                save_reminders(reminders)
+            await asyncio.sleep(10)
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.create_task(poll_reminders())
 
 # ✅ START command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -187,12 +217,12 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     task, reminder_time = parse_reminder(user_input)
     if task:
-        schedule_with_jobqueue = schedule_reminder(task, reminder_time)
-        chat_id = update.effective_chat.id
-        schedule_with_jobqueue(context, chat_id)
-        if reminder_time:
+        due_time = parse_due_time(reminder_time) if reminder_time else None
+        if due_time:
+            add_reminder(update.effective_chat.id, task, due_time)
             await update.message.reply_text(f"Okay, I'll remind you to '{task}' at {reminder_time} here on Telegram!")
         else:
+            add_reminder(update.effective_chat.id, task, datetime.datetime.now())
             await update.message.reply_text(f"Okay, I'll remind you to '{task}' here on Telegram!")
         return
 
@@ -247,6 +277,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, respond))
+    start_reminder_polling(app)
     print("Zoey Telegram Bot is running...")
     app.run_polling()
 
