@@ -42,16 +42,18 @@ except ImportError:
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 # 🧠 Groq API Setup
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-def call_groq(prompt):
-    url = "https://api.groq.com/openai/v1/chat/completions"
+# OpenAI API Setup
+OPENAI_API_KEY = os.environ.get("OpenAi")
+
+def call_openai(prompt):
+    url = "https://api.openai.com/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
         "Content-Type": "application/json"
     }
     data = {
-        "model": "llama-3.1-8b-instant",  # updated to your chosen model
+        "model": "gpt-3.5-turbo",  # or "gpt-4" if you have access
         "messages": [
             {"role": "system", "content": system_message},
             {"role": "user", "content": prompt}
@@ -64,10 +66,10 @@ def call_groq(prompt):
         if "choices" in response_json:
             return response_json["choices"][0]["message"]["content"]
         else:
-            print("Groq API error:", response_json)
-            return "Sorry, there was a problem with the Groq API: " + str(response_json)
+            print("OpenAI API error:", response_json)
+            return "Sorry, there was a problem with the OpenAI API: " + str(response_json)
     except Exception as e:
-        print("Groq error response:", res.status_code, res.text)
+        print("OpenAI error response:", res.status_code, res.text)
         raise
 
 
@@ -246,7 +248,7 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     memory_section = "\n".join(f"- {m}" for m in user_memories)
     memory_prompt = f"\n{user_name}'s memory:\n{memory_section}\n" if user_memories else ""
     prompt = f"{system_message}{memory_prompt}{user_name}: {user_input}\nZoey:"
-    zoey_reply = call_groq(prompt).strip().split("\n")[0]
+    zoey_reply = call_openai(prompt).strip().split("\n")[0]
     await update.message.reply_text(zoey_reply)
 
 # --- Broadcast command (admin only) ---
