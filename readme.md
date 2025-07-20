@@ -1,13 +1,13 @@
 # Zoey AI Telegram Bot
 
-A Telegram chatbot powered by the Groq API (llama-3.1-8b-instant) and deployed for 24/7 operation on cloud platforms.
+A Telegram chatbot powered by the Open AI (GPT 4.1) and deployed for 24/7 operation on cloud platforms.
 
 ## Features
-- Uses [Groq API](https://console.groq.com/docs) (llama-3.1-8b-instant) for all LLM responses
+- Uses OpenAi GPT 4.1 for all LLM responses
 - Telegram bot built with [python-telegram-bot](https://docs.python-telegram-bot.org/en/v20.7/)
 - Async API for fast, scalable messaging
 - Memory system for chat context
-- Deployable to [Render](https://render.com/), [Railway](https://railway.app/), [Fly.io](https://fly.io/), or [Replit](https://replit.com/)
+- Deployable to [Fly.io](https://fly.io/)
 - Docker support for local/cloud deployment
 
 ## Environment Variables
@@ -33,6 +33,3 @@ A Telegram chatbot powered by the Groq API (llama-3.1-8b-instant) and deployed f
    ```sh
    python main.py
    ```
-
-## License
-MIT
