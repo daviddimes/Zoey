@@ -72,32 +72,31 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 def call_openai(prompt):
     try:
+        print("[OpenAI Request] Prompt sent:")
+        print(prompt)
         response = client.responses.create(
             prompt={
                 "id": PROMPT_ID,
-                "version": "2"
+                "version": "3"
             },
             input=prompt
         )
-        # Extract the actual text from response.output[0].content[0].text
+        # Try to extract the actual text from response.output[0].content[0].text
         if hasattr(response, "output") and response.output:
             first_output = response.output[0]
             if hasattr(first_output, "content") and first_output.content:
                 first_content = first_output.content[0]
                 if hasattr(first_content, "text"):
-                    # Hard limit: cut reply at 100 tokens, even if mid-word
                     reply = first_content.text.strip()
+                    # Hard limit: cut reply at 100 tokens, even if mid-word
                     token_count = 0
                     result = []
                     for word in re.finditer(r'\S+', reply):
                         token_count += 1
                         if token_count > 100:
-                            # Cut off at the start of this word
                             break
                         result.append(word.group())
-                    # If reply was longer, join only up to the cutoff
                     return ' '.join(result)
-        # Fallback: try to convert response to string
         return str(response)
     except Exception as e:
         print("OpenAI error response:", str(e))
