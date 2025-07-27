@@ -1,3 +1,22 @@
+# Utility: Clean old string-based memory entries from memory.json
+def clean_old_memory():
+    memory = load_memory()
+    cleaned = {}
+    changed = False
+    for user, entries in memory.items():
+        if isinstance(entries, list):
+            new_entries = [e for e in entries if isinstance(e, dict)]
+            if len(new_entries) != len(entries):
+                changed = True
+            cleaned[user] = new_entries
+        else:
+            cleaned[user] = entries
+    if changed:
+        save_memory(cleaned)
+        print("Old string-based memory entries removed from memory.json.")
+    else:
+        print("No old memory entries found to clean.")
+
 # --- User tracking for broadcast ---
 USERS_FILE = "users.json"
 
@@ -25,6 +44,7 @@ import os
 import string
 import logging
 import requests
+from openai import OpenAI
 import re
 import threading
 import time as time_module
@@ -41,49 +61,108 @@ except ImportError:
 # 🔑 Replace this with your actual token from BotFather
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
-# 🧠 Groq API Setup
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-def call_groq(prompt):
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "llama-3.1-8b-instant",  # updated to your chosen model
-        "messages": [
-            {"role": "system", "content": system_message},
-            {"role": "user", "content": prompt}
-        ],
-        "temperature": 0.7
-    }
-    res = requests.post(url, headers=headers, json=data)
+
+
+# OpenAI API Setup
+OPENAI_API_KEY = os.environ.get("OpenAi")
+PROMPT_ID = "pmpt_687c5b2bf4288190937b95f0b281662605eca0f1bc4ae3cd"
+
+client = OpenAI(api_key=OPENAI_API_KEY)
+
+def call_openai(prompt):
     try:
-        response_json = res.json()
-        if "choices" in response_json:
-            return response_json["choices"][0]["message"]["content"]
-        else:
-            print("Groq API error:", response_json)
-            return "Sorry, there was a problem with the Groq API: " + str(response_json)
+        response = client.responses.create(
+            prompt={
+                "id": PROMPT_ID,
+                "version": "2"
+            },
+            input=prompt
+        )
+        # Extract the actual text from response.output[0].content[0].text
+        if hasattr(response, "output") and response.output:
+            first_output = response.output[0]
+            if hasattr(first_output, "content") and first_output.content:
+                first_content = first_output.content[0]
+                if hasattr(first_content, "text"):
+                    # Hard limit: cut reply at 100 tokens, even if mid-word
+                    reply = first_content.text.strip()
+                    token_count = 0
+                    result = []
+                    for word in re.finditer(r'\S+', reply):
+                        token_count += 1
+                        if token_count > 100:
+                            # Cut off at the start of this word
+                            break
+                        result.append(word.group())
+                    # If reply was longer, join only up to the cutoff
+                    return ' '.join(result)
+        # Fallback: try to convert response to string
+        return str(response)
     except Exception as e:
-        print("Groq error response:", res.status_code, res.text)
-        raise
+        print("OpenAI error response:", str(e))
 
 
-# System prompt for Zoey
-system_message = (
-    "You are Zoey. You are a friendly, casual, and helpful assistant. You always let the user lead the conversation. "
-    "You do not ask questions unless directly asked. You do not offer your opinions unless they are specifically requested "
-    "or directly relevant to the current topic. You never go off topic. You do not mention being an AI. "
-    "You respond clearly and efficiently. You avoid rambling, repetition, or adding fluff. "
-    "You only act when spoken to, and you only talk about what the user is talking about. "
-    "Before answering, you silently think through your response, then reply clearly and intelligently. "
-    "Only mention facts from your memory if they are directly relevant to the user's current message or question. "
-    "Do not bring up unrelated memories."
-)
 
+# --- Hybrid Behavioral Memory ---
 MEMORY_FILE = "memory/memory.json"
+
+def ensure_memory_dir():
+    os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
+
+def load_memory():
+    ensure_memory_dir()
+    if os.path.exists(MEMORY_FILE):
+        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_memory(memory):
+    ensure_memory_dir()
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(memory, f, indent=2, ensure_ascii=False)
+
+# Memory schema: { "tag": ..., "condition": ..., "value": ... }
+def get_user_memory(user_name):
+    memory = load_memory()
+    return memory.get(user_name, [])
+
+def add_user_memory(user_name, tag, condition, value):
+    memory = load_memory()
+    user_memories = memory.get(user_name, [])
+    entry = {"tag": tag, "condition": condition, "value": value}
+    if entry not in user_memories:
+        user_memories.append(entry)
+        memory[user_name] = user_memories
+        save_memory(memory)
+        logging.info(f"Added behavioral memory for {user_name}: {entry}")
+    else:
+        logging.info(f"Behavioral memory already exists for {user_name}: {entry}")
+
+def apply_behavioral_memory(user_name, user_input):
+    """
+    Returns a dict of behavioral flags based on user's memory and input.
+    Only applies memory if condition matches user_input.
+    Example output: {"concise": True, "prefer_texting": True}
+    """
+    flags = {}
+    user_memories = get_user_memory(user_name)
+    for entry in user_memories:
+        if not isinstance(entry, dict):
+            continue  # Ignore old string-based memory entries
+        tag = entry.get("tag", "")
+        condition = entry.get("condition", "")
+        value = entry.get("value", "")
+        # Example: if condition is "reply_length" and value is "short"
+        if condition == "reply_length" and value == "short":
+            flags["concise"] = True
+        if condition == "communication" and value == "texting":
+            flags["prefer_texting"] = True
+        if condition == "location":
+            flags["location"] = value
+        # Add more behaviors as needed, only if memory matches
+    return flags
+
 
 def ensure_memory_dir():
     os.makedirs(os.path.dirname(MEMORY_FILE), exist_ok=True)
@@ -226,28 +305,48 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(f"Okay, I'll remind you to '{task}' here on Telegram!")
         return
 
-    memory = load_memory()
-    user_memories = memory.get(user_name, [])
+    # --- Behavioral memory ---
+    behavioral_flags = apply_behavioral_memory(user_name, user_input)
 
-    fact = extract_fact(user_name, user_input)
-    # Remove memory_message and do not append it to the reply
-    if fact:
-        fact = fact.strip()
-        if fact not in [f.strip() for f in user_memories]:
-            user_memories.append(fact)
-            memory[user_name] = user_memories
-            save_memory(memory)
-            logging.info(f"Added fact for {user_name}: {fact}")
-        else:
-            logging.info(f"Fact already in memory for {user_name}: {fact}")
-    else:
-        logging.info(f"No fact extracted from input: {user_input}")
+    # Check for direct time-related questions and answer directly
+    time_patterns = [
+        r"^what(?:'s| is) the time[\?\.! ]*$",
+        r"^current time[\?\.! ]*$",
+        r"^time now[\?\.! ]*$",
+        r"^what time is it[\?\.! ]*$",
+        r"^tell me the time[\?\.! ]*$"
+    ]
+    if any(re.match(p, user_input.strip(), re.IGNORECASE) for p in time_patterns):
+        now = datetime.datetime.now()
+        time_str = now.strftime("%I:%M %p on %A, %B %d, %Y")
+        await update.message.reply_text(f"It's {time_str}.")
+        return
 
-    memory_section = "\n".join(f"- {m}" for m in user_memories)
-    memory_prompt = f"\n{user_name}'s memory:\n{memory_section}\n" if user_memories else ""
-    prompt = f"{system_message}{memory_prompt}{user_name}: {user_input}\nZoey:"
-    zoey_reply = call_groq(prompt).strip().split("\n")[0]
-    await update.message.reply_text(zoey_reply)
+    # Example: if user prefers concise replies, adjust prompt
+    prompt_instruction = ""
+    if behavioral_flags.get("concise"):
+        prompt_instruction = " (reply concisely)"
+    # Example: if user prefers texting, add a hint (not injected unless relevant)
+    # Example: if location is set, could filter info (not implemented unless memory exists)
+
+    # Build prompt WITHOUT injecting memory
+    prompt = f"{user_name}: {user_input}\nZoey{prompt_instruction}:"
+    zoey_reply = call_openai(prompt).strip()
+    # --- Link formatting ---
+    link_pattern = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+    links = link_pattern.findall(zoey_reply)
+    heading_pos = zoey_reply.find('\n##') if '\n##' in zoey_reply else len(zoey_reply)
+    main_text = zoey_reply[:heading_pos].strip()
+    max_length = 4096
+    if main_text:
+        for i in range(0, len(main_text), max_length):
+            await update.message.reply_text(main_text[i:i+max_length])
+    if links:
+        sent_urls = set()
+        for text, url in links:
+            if url not in sent_urls:
+                await update.message.reply_text(url)
+                sent_urls.add(url)
 
 # --- Broadcast command (admin only) ---
 ADMIN_USER_ID = int(os.environ.get("ADMIN_USER_ID", "0"))  # Set your Telegram user ID in .env
