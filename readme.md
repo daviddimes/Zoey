@@ -15,8 +15,19 @@ A Telegram chatbot powered by the Open AI (GPT 4.1) and deployed for 24/7 operat
 - `GROQ_API_KEY` — Groq API key ([Groq Console](https://console.groq.com/))
 - (Optional) `PUSHOVER_USER_KEY` and `PUSHOVER_API_TOKEN` for [Pushover](https://pushover.net/) notifications
 
+
 ## Deployment
 - [Fly.io Python Deploy Docs](https://fly.io/docs/languages-and-frameworks/python/)
+
+## Git Commands
+
+| Command                | Description                                 |
+|------------------------|---------------------------------------------|
+| `git status`           | Show the status of changes in your repo     |
+| `git add <file>`       | Stage file(s) for commit                   |
+| `git commit -m "msg"` | Commit staged changes with a message        |
+| `git push`             | Push local commits to the remote repository |
+| `git pull`             | Fetch and merge changes from remote         |
 
 ## Requirements
 - Python 3.10.13 (see `runtime.txt`)
