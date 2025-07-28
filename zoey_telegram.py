@@ -225,6 +225,7 @@ def save_reminders(reminders):
 
 def add_reminder(chat_id, task, due_time):
     reminders = load_reminders()
+    logging.info(f"Adding reminder: chat_id={chat_id}, task='{task}', due_time={due_time.isoformat()}")
     reminders.append({
         "chat_id": chat_id,
         "task": task,
@@ -233,29 +234,50 @@ def add_reminder(chat_id, task, due_time):
     save_reminders(reminders)
 
 def parse_due_time(reminder_time):
-    # Returns a datetime object for when the reminder is due
     if not reminder_time:
+        logging.info("No reminder_time provided, returning None.")
         return None
     m = re.match(r"(?:in )?(\d+) (second|seconds|minute|minutes|hour|hours|day|days|week|weeks)", reminder_time)
     now = datetime.datetime.now()
     if m:
         num = int(m.group(1))
         unit = m.group(2)
+        due = None
         if 'second' in unit:
-            return now + datetime.timedelta(seconds=num)
+            due = now + datetime.timedelta(seconds=num)
         elif 'minute' in unit:
-            return now + datetime.timedelta(minutes=num)
+            due = now + datetime.timedelta(minutes=num)
         elif 'hour' in unit:
-            return now + datetime.timedelta(hours=num)
+            due = now + datetime.timedelta(hours=num)
         elif 'day' in unit:
-            return now + datetime.timedelta(days=num)
+            due = now + datetime.timedelta(days=num)
         elif 'week' in unit:
-            return now + datetime.timedelta(weeks=num)
+            due = now + datetime.timedelta(weeks=num)
+        logging.info(f"Parsed relative reminder time '{reminder_time}' as {due.isoformat()}.")
+        return due
     else:
         try:
+            # If reminder_time matches a time-only string (like '9pm'), parse just the hour/minute
+            time_match = re.match(r"^(\d{1,2})(:(\d{2}))? ?([ap]m)?$", reminder_time.strip(), re.IGNORECASE)
+            if time_match:
+                hour = int(time_match.group(1))
+                minute = int(time_match.group(3)) if time_match.group(3) else 0
+                ampm = time_match.group(4)
+                if ampm:
+                    if ampm.lower() == 'pm' and hour < 12:
+                        hour += 12
+                    if ampm.lower() == 'am' and hour == 12:
+                        hour = 0
+                target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+                if target < now:
+                    target = target + datetime.timedelta(days=1)
+                logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()}.")
+                return target
+            # Otherwise, fallback to full parse
             target = dateutil.parser.parse(reminder_time, default=now)
             if target < now:
                 target = target + datetime.timedelta(days=1)
+            logging.info(f"Parsed absolute reminder time '{reminder_time}' as {target.isoformat()}.")
             return target
         except Exception as e:
             logging.error(f"Could not parse reminder time: {reminder_time} ({e})")
@@ -266,10 +288,13 @@ def start_reminder_polling(application):
         while True:
             reminders = load_reminders()
             now = datetime.datetime.now()
+            logging.info(f"Polling reminders at {now.isoformat()}. Reminders loaded: {len(reminders)}")
             to_send = [r for r in reminders if datetime.datetime.fromisoformat(r["due_time"]) <= now]
             if to_send:
+                logging.info(f"Reminders to send: {len(to_send)}")
                 for r in to_send:
                     try:
+                        logging.info(f"Sending reminder to chat_id={r['chat_id']}: {r['task']}")
                         await application.bot.send_message(chat_id=r["chat_id"], text=f"⏰ Reminder: {r['task']}")
                     except Exception as e:
                         logging.error(f"Failed to send reminder to {r['chat_id']}: {e}")
@@ -369,11 +394,31 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Failed to send to {chat_id}: {e}")
     await update.message.reply_text(f"Broadcast sent to {count} users.")
 
+# --- Reminders command
+async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    reminders = load_reminders()
+    user_reminders = [r for r in reminders if r["chat_id"] == chat_id]
+    if not user_reminders:
+        await update.message.reply_text("You have no scheduled reminders.")
+        return
+    lines = []
+    for r in user_reminders:
+        try:
+            due = datetime.datetime.fromisoformat(r["due_time"])
+            due_str = due.strftime("%I:%M %p on %A, %B %d, %Y")
+        except Exception:
+            due_str = r["due_time"]
+        lines.append(f"- {r['task']} at {due_str}")
+    reply = "Your scheduled reminders:\n" + "\n".join(lines)
+    await update.message.reply_text(reply)
+
 # 🧠 Main
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
+    app.add_handler(CommandHandler("reminders", reminders_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, respond))
     start_reminder_polling(app)
     print("Zoey Telegram Bot is running...")
