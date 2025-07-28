@@ -1,3 +1,6 @@
+# ...existing code...
+
+# ...existing code...
 # Utility: Clean old string-based memory entries from memory.json
 def clean_old_memory():
     memory = load_memory()
@@ -45,11 +48,29 @@ import string
 import logging
 import requests
 from openai import OpenAI
+import base64
 import re
 import threading
 import time as time_module
 import datetime
 import dateutil.parser
+# --- Commands list ---
+async def commands_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    commands = [
+        "/start - Start Zoey and track you as a user",
+        "/reminders - List your scheduled reminders",
+        "/broadcast <message> - Send a message to all users (admin only)",
+        "/commands - Show this list of commands",
+        "remind me to [task] at [time] - Schedule a reminder",
+        "remind me to [task] in [duration] - Schedule a reminder",
+        "play [song/artist/playlist/podcast] - Get a Spotify link for music or podcast",
+        "play artist [name] - Get a Spotify link for an artist",
+        "play playlist [name] - Get a Spotify link for a playlist",
+        "play podcast [name] - Get a Spotify link for a podcast",
+        "Ask any question or chat with Zoey"
+    ]
+    reply = "Available commands and features:\n\n" + "\n".join(commands)
+    await update.message.reply_text(reply)
 
 # Load environment variables from .env if present
 try:
@@ -67,6 +88,13 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 # OpenAI API Setup
 OPENAI_API_KEY = os.environ.get("OpenAi")
 PROMPT_ID = "pmpt_687c5b2bf4288190937b95f0b281662605eca0f1bc4ae3cd"
+
+# Spotify API Setup
+SPOTIFY_KEY = os.environ.get("SpotifyKey")
+SPOTIFY_CLIENT_ID = None
+SPOTIFY_CLIENT_SECRET = None
+if SPOTIFY_KEY and ':' in SPOTIFY_KEY:
+    SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET = SPOTIFY_KEY.split(':', 1)
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -269,10 +297,14 @@ def parse_due_time(reminder_time):
                     if ampm.lower() == 'am' and hour == 12:
                         hour = 0
                 target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if target < now:
+                # Only set for tomorrow if the time has already passed
+                if target > now:
+                    logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()} (today).")
+                    return target
+                else:
                     target = target + datetime.timedelta(days=1)
-                logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()}.")
-                return target
+                    logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()} (tomorrow).")
+                    return target
             # Otherwise, fallback to full parse
             target = dateutil.parser.parse(reminder_time, default=now)
             if target < now:
@@ -317,6 +349,25 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(update.effective_chat.id)
     user_input = update.message.text
     user_name = (update.effective_user.first_name or "User").title()
+
+    # Spotify play command
+    play_match = re.match(r"play (.+)", user_input.strip(), re.IGNORECASE)
+    if play_match:
+        play_query = play_match.group(1).strip()
+        # Try to guess type: playlist, artist, podcast, or track
+        type_ = "track"
+        if "playlist" in play_query.lower():
+            type_ = "playlist"
+            play_query = play_query.replace("playlist", "", 1).strip()
+        elif "artist" in play_query.lower():
+            type_ = "artist"
+            play_query = play_query.replace("artist", "", 1).strip()
+        elif "podcast" in play_query.lower():
+            type_ = "show"
+            play_query = play_query.replace("podcast", "", 1).strip()
+        result = spotify_search_play(play_query, type_)
+        await update.message.reply_text(result)
+        return
 
     task, reminder_time = parse_reminder(user_input)
     if task:
@@ -394,6 +445,60 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Failed to send to {chat_id}: {e}")
     await update.message.reply_text(f"Broadcast sent to {count} users.")
 
+# --- Spotify API functions ---
+def get_spotify_token():
+    if not SPOTIFY_KEY:
+        return "ERROR: SpotifyKey environment variable is missing."
+    if not SPOTIFY_CLIENT_ID or not SPOTIFY_CLIENT_SECRET:
+        return "ERROR: SpotifyKey is not in the format 'client_id:client_secret'."
+    auth_str = f"{SPOTIFY_CLIENT_ID}:{SPOTIFY_CLIENT_SECRET}"
+    b64_auth = base64.b64encode(auth_str.encode()).decode()
+    headers = {
+        "Authorization": f"Basic {b64_auth}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {"grant_type": "client_credentials"}
+    resp = requests.post("https://accounts.spotify.com/api/token", headers=headers, data=data)
+    if resp.status_code == 200:
+        return resp.json().get("access_token")
+    return f"ERROR: Spotify authentication failed (status {resp.status_code}). Check your client ID and secret."
+
+def spotify_search_play(query, type_):
+    token = get_spotify_token()
+    if isinstance(token, str) and token.startswith("ERROR:"):
+        return token
+    if not token:
+        return "Spotify API authentication failed."
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"q": query, "type": type_, "limit": 1}
+    resp = requests.get("https://api.spotify.com/v1/search", headers=headers, params=params)
+    if resp.status_code == 200:
+        result = resp.json()
+        if type_ == "track" and result.get("tracks", {}).get("items"):
+            track = result["tracks"]["items"][0]
+            name = track["name"]
+            artist = track["artists"][0]["name"]
+            url = track["external_urls"]["spotify"]
+            return f"Play '{name}' by {artist}: {url}"
+        elif type_ == "artist" and result.get("artists", {}).get("items"):
+            artist = result["artists"]["items"][0]
+            name = artist["name"]
+            url = artist["external_urls"]["spotify"]
+            return f"Play artist '{name}': {url}"
+        elif type_ == "playlist" and result.get("playlists", {}).get("items"):
+            playlist = result["playlists"]["items"][0]
+            name = playlist["name"]
+            url = playlist["external_urls"]["spotify"]
+            return f"Play playlist '{name}': {url}"
+        elif type_ == "show" and result.get("shows", {}).get("items"):
+            show = result["shows"]["items"][0]
+            name = show["name"]
+            url = show["external_urls"]["spotify"]
+            return f"Play podcast '{name}': {url}"
+        else:
+            return f"No {type_} found for '{query}'."
+    return f"Spotify search failed (status {resp.status_code})."
+
 # --- Reminders command
 async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
@@ -419,6 +524,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("reminders", reminders_command))
+    app.add_handler(CommandHandler("commands", commands_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, respond))
     start_reminder_polling(app)
     print("Zoey Telegram Bot is running...")
