@@ -269,10 +269,14 @@ def parse_due_time(reminder_time):
                     if ampm.lower() == 'am' and hour == 12:
                         hour = 0
                 target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if target < now:
+                # Only set for tomorrow if the time has already passed
+                if target > now:
+                    logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()} (today).")
+                    return target
+                else:
                     target = target + datetime.timedelta(days=1)
-                logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()}.")
-                return target
+                    logging.info(f"Parsed time-only reminder '{reminder_time}' as {target.isoformat()} (tomorrow).")
+                    return target
             # Otherwise, fallback to full parse
             target = dateutil.parser.parse(reminder_time, default=now)
             if target < now:
