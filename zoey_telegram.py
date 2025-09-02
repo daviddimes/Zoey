@@ -40,39 +40,39 @@ def add_user(chat_id):
 
 # zoey_telegram.py
 
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-import json
-import os
-import string
-import logging
-import requests
 from openai import OpenAI
-import base64
-import re
-import threading
-import time as time_module
-import datetime
-import dateutil.parser
-# --- Commands list ---
-async def commands_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    commands = [
-        "/start - Start Zoey and track you as a user",
-        "/reminders - List your scheduled reminders",
-        "/broadcast <message> - Send a message to all users (admin only)",
-        "/commands - Show this list of commands",
-        "remind me to [task] at [time] - Schedule a reminder",
-        "remind me to [task] in [duration] - Schedule a reminder",
-        "play [song/artist/playlist/podcast] - Get a Spotify link for music or podcast",
-        "play artist [name] - Get a Spotify link for an artist",
-        "play playlist [name] - Get a Spotify link for a playlist",
-        "play podcast [name] - Get a Spotify link for a podcast",
-        "Ask any question or chat with Zoey"
-    ]
-    reply = "Available commands and features:\n\n" + "\n".join(commands)
-    await update.message.reply_text(reply)
+client = OpenAI()
 
-# Load environment variables from .env if present
+def call_openai(prompt):
+    try:
+        print("[OpenAI Request] Prompt sent:")
+        print(prompt)
+        response = client.responses.create(
+            prompt={
+                "id": PROMPT_ID,
+                "version": "6"
+            },
+            input=prompt
+        )
+        # Try to extract the actual text from response.output[0].content[0].text
+        if hasattr(response, "output") and response.output:
+            first_output = response.output[0]
+            if hasattr(first_output, "content") and first_output.content:
+                first_content = first_output.content[0]
+                if hasattr(first_content, "text"):
+                    reply = first_content.text.strip()
+                    # Hard limit: cut reply at 100 tokens, even if mid-word
+                    token_count = 0
+                    result = []
+                    for word in re.finditer(r'\S+', reply):
+                        token_count += 1
+                        if token_count > 100:
+                            break
+                        result.append(word.group())
+                    return ' '.join(result)
+        return str(response)
+    except Exception as e:
+        print("OpenAI error response:", str(e))
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -333,18 +333,20 @@ def start_reminder_polling(application):
                 reminders = [r for r in reminders if datetime.datetime.fromisoformat(r["due_time"]) > now]
                 save_reminders(reminders)
             await asyncio.sleep(10)
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(poll_reminders())
-
-# ✅ START command
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Track user on /start
-    add_user(update.effective_chat.id)
-    await update.message.reply_text("Hello! How can I help?")
-
-# 📥 Message handler
-async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import os
+    import json
+    import re
+    import logging
+    import string
+    import base64
+    import threading
+    import time as time_module
+    import datetime
+    import requests
+    import dateutil.parser
+    from openai import OpenAI
+    from telegram import Update
+    from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
     # Track user on any message
     add_user(update.effective_chat.id)
     user_input = update.message.text
