@@ -1,78 +1,39 @@
-# ...existing code...
-
-# ...existing code...
-# Utility: Clean old string-based memory entries from memory.json
-def clean_old_memory():
-    memory = load_memory()
-    cleaned = {}
-    changed = False
-    for user, entries in memory.items():
-        if isinstance(entries, list):
-            new_entries = [e for e in entries if isinstance(e, dict)]
-            if len(new_entries) != len(entries):
-                changed = True
-            cleaned[user] = new_entries
-        else:
-            cleaned[user] = entries
-    if changed:
-        save_memory(cleaned)
-        print("Old string-based memory entries removed from memory.json.")
-    else:
-        print("No old memory entries found to clean.")
-
-# --- User tracking for broadcast ---
-USERS_FILE = "users.json"
-
-def load_users():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r", encoding="utf-8") as f:
-            return set(json.load(f))
-    return set()
-
-def save_users(users):
-    with open(USERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(list(users), f, indent=2)
-
-def add_user(chat_id):
-    users = load_users()
-    users.add(chat_id)
-    save_users(users)
 
 # zoey_telegram.py
 
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+import json
+import os
+import string
+import logging
+import requests
 from openai import OpenAI
-client = OpenAI()
+import base64
+import re
+import threading
+import time as time_module
+import datetime
+import dateutil.parser
+# --- Commands list ---
+async def commands_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    commands = [
+        "/start - Start Zoey and track you as a user",
+        "/reminders - List your scheduled reminders",
+        "/broadcast <message> - Send a message to all users (admin only)",
+        "/commands - Show this list of commands",
+        "remind me to [task] at [time] - Schedule a reminder",
+        "remind me to [task] in [duration] - Schedule a reminder",
+        "play [song/artist/playlist/podcast] - Get a Spotify link for music or podcast",
+        "play artist [name] - Get a Spotify link for an artist",
+        "play playlist [name] - Get a Spotify link for a playlist",
+        "play podcast [name] - Get a Spotify link for a podcast",
+        "Ask any question or chat with Zoey"
+    ]
+    reply = "Available commands and features:\n\n" + "\n".join(commands)
+    await update.message.reply_text(reply)
 
-def call_openai(prompt):
-    try:
-        print("[OpenAI Request] Prompt sent:")
-        print(prompt)
-        response = client.responses.create(
-            prompt={
-                "id": PROMPT_ID,
-                "version": "6"
-            },
-            input=prompt
-        )
-        # Try to extract the actual text from response.output[0].content[0].text
-        if hasattr(response, "output") and response.output:
-            first_output = response.output[0]
-            if hasattr(first_output, "content") and first_output.content:
-                first_content = first_output.content[0]
-                if hasattr(first_content, "text"):
-                    reply = first_content.text.strip()
-                    # Hard limit: cut reply at 100 tokens, even if mid-word
-                    token_count = 0
-                    result = []
-                    for word in re.finditer(r'\S+', reply):
-                        token_count += 1
-                        if token_count > 100:
-                            break
-                        result.append(word.group())
-                    return ' '.join(result)
-        return str(response)
-    except Exception as e:
-        print("OpenAI error response:", str(e))
+# Load environment variables from .env if present
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -84,10 +45,9 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 
 
 
-
 # OpenAI API Setup
 OPENAI_API_KEY = os.environ.get("OpenAi")
-PROMPT_ID = "pmpt_687c5b2bf4288190937b95f0b281662605eca0f1bc4ae3cd"
+ASSISTANT_ID = "asst_SJYzPpk8umNdaG3QiUI3IIp4"
 
 # Spotify API Setup
 SPOTIFY_KEY = os.environ.get("SpotifyKey")
@@ -96,38 +56,46 @@ SPOTIFY_CLIENT_SECRET = None
 if SPOTIFY_KEY and ':' in SPOTIFY_KEY:
     SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET = SPOTIFY_KEY.split(':', 1)
 
+
+# --- OpenAI Assistants API integration ---
+from openai import OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 def call_openai(prompt):
     try:
-        print("[OpenAI Request] Prompt sent:")
+        print("[OpenAI Assistant Request] Prompt sent:")
         print(prompt)
-        response = client.responses.create(
-            prompt={
-                "id": PROMPT_ID,
-                "version": "3"
-            },
-            input=prompt
+        # Create a new thread for each user message
+        thread = client.beta.threads.create()
+        # Add the user message to the thread
+        client.beta.threads.messages.create(
+            thread_id=thread.id,
+            role="user",
+            content=prompt
         )
-        # Try to extract the actual text from response.output[0].content[0].text
-        if hasattr(response, "output") and response.output:
-            first_output = response.output[0]
-            if hasattr(first_output, "content") and first_output.content:
-                first_content = first_output.content[0]
-                if hasattr(first_content, "text"):
-                    reply = first_content.text.strip()
-                    # Hard limit: cut reply at 100 tokens, even if mid-word
-                    token_count = 0
-                    result = []
-                    for word in re.finditer(r'\S+', reply):
-                        token_count += 1
-                        if token_count > 100:
-                            break
-                        result.append(word.group())
-                    return ' '.join(result)
-        return str(response)
+        # Run the assistant
+        run = client.beta.threads.runs.create(
+            thread_id=thread.id,
+            assistant_id=ASSISTANT_ID
+        )
+        # Wait for the run to complete
+        import time
+        while True:
+            run_status = client.beta.threads.runs.retrieve(thread_id=thread.id, run_id=run.id)
+            if run_status.status == "completed":
+                break
+            elif run_status.status in ("failed", "cancelled", "expired"):
+                return "[Zoey Assistant Error: Run failed or cancelled]"
+            time.sleep(1)
+        # Get the latest assistant message
+        messages = client.beta.threads.messages.list(thread_id=thread.id)
+        for msg in reversed(messages.data):
+            if msg.role == "assistant":
+                return msg.content[0].text.value.strip()
+        return "[Zoey Assistant Error: No response]"
     except Exception as e:
-        print("OpenAI error response:", str(e))
+        print("OpenAI Assistant error response:", str(e))
+        return f"[Zoey Assistant Error: {str(e)}]"
 
 
 
@@ -333,24 +301,33 @@ def start_reminder_polling(application):
                 reminders = [r for r in reminders if datetime.datetime.fromisoformat(r["due_time"]) > now]
                 save_reminders(reminders)
             await asyncio.sleep(10)
-    import os
-    import json
-    import re
-    import logging
-    import string
-    import base64
-    import threading
-    import time as time_module
-    import datetime
-    import requests
-    import dateutil.parser
-    from openai import OpenAI
-    from telegram import Update
-    from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+    import asyncio
+    loop = asyncio.get_event_loop()
+    loop.create_task(poll_reminders())
+
+# ✅ START command
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Track user on /start
+    add_user(update.effective_chat.id)
+    await update.message.reply_text("Hello! How can I help?")
+
+# 📥 Message handler
+async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Track user on any message
     add_user(update.effective_chat.id)
     user_input = update.message.text
     user_name = (update.effective_user.first_name or "User").title()
+
+    # Check for addcontact reply state
+    if await handle_addcontact_reply(update, context):
+        return
+    # Check for deletecontact reply state
+    if await handle_deletecontact_reply(update, context):
+        return
+
+    # --- Relay message to contact if pattern matches ---
+    if await try_relay_message(update, context, user_input):
+        return
 
     # Spotify play command
     play_match = re.match(r"play (.+)", user_input.strip(), re.IGNORECASE)
@@ -520,6 +497,185 @@ async def reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply = "Your scheduled reminders:\n" + "\n".join(lines)
     await update.message.reply_text(reply)
 
+# --- Contact management ---
+CONTACTS_FILE = "contacts.json"
+
+
+# --- Contact management ---
+CONTACTS_FILE = "contacts.json"
+
+pending_addcontact = {}
+pending_deletecontact = {}
+
+# --- User tracking ---
+USERS_FILE = "users.json"
+
+def load_users():
+    if os.path.exists(USERS_FILE):
+        with open(USERS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_users(users):
+    with open(USERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(users, f, indent=2)
+
+def add_user(user_id):
+    users = load_users()
+    if user_id not in users:
+        users.append(user_id)
+        save_users(users)
+
+def load_contacts():
+    if os.path.exists(CONTACTS_FILE):
+        with open(CONTACTS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_contacts(contacts):
+    with open(CONTACTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(contacts, f, indent=2)
+
+async def addcontact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    pending_addcontact[user_id] = {"step": 1}
+    await update.message.reply_text("What is the contact's name?")
+
+async def handle_addcontact_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in pending_addcontact:
+        return False
+    state = pending_addcontact[user_id]
+    if state["step"] == 1:
+        # Normalize name: strip spaces, lower case
+        state["name"] = update.message.text.strip().replace(' ', '').lower()
+        state["step"] = 2
+        await update.message.reply_text("What is the contact's Telegram user ID?)")
+        return True
+    if state["step"] == 2:
+        name = state["name"]
+        try:
+            telegram_user_id = int(update.message.text.strip())
+        except ValueError:
+            await update.message.reply_text("That doesn't look like a valid numeric user ID. Please enter the contact's Telegram user ID (a number).")
+            return True
+        contacts = load_contacts()
+        if user_id not in contacts:
+            contacts[user_id] = {}
+        contacts[user_id][name] = telegram_user_id
+        save_contacts(contacts)
+        await update.message.reply_text(f"Contact '{name}' with user ID {telegram_user_id} added.")
+        del pending_addcontact[user_id]
+        return True
+    return False
+
+async def viewcontacts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    contacts = load_contacts().get(user_id, {})
+    if not contacts:
+        await update.message.reply_text("You have no contacts saved.")
+        return
+    msg = "Your contacts:\n" + "\n".join([f"{name}: user ID {user_id}" for name, user_id in contacts.items()])
+    msg += "\n\n(To delete a contact, type the name exactly as shown above.)"
+    await update.message.reply_text(msg)
+
+async def deletecontact_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    contacts = load_contacts().get(user_id, {})
+    if not contacts:
+        await update.message.reply_text("You have no contacts to delete.")
+        return
+    contact_list = "\n".join([f"- {name}" for name in contacts.keys()])
+    pending_deletecontact[user_id] = {"step": 1, "contacts": list(contacts.keys())}
+    await update.message.reply_text(f"Your contacts:\n{contact_list}\n\nWhich contact would you like to delete? Please type the name exactly as shown above.")
+
+async def handle_deletecontact_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    if user_id not in pending_deletecontact:
+        return False
+    state = pending_deletecontact[user_id]
+    if state["step"] == 1:
+        contact_name = update.message.text.strip().replace(' ', '').lower()
+        contacts = load_contacts()
+        user_contacts = contacts.get(user_id, {})
+        # Direct match (normalized)
+        if contact_name not in user_contacts:
+            await update.message.reply_text("Contact not found. Please type the name exactly as shown in the list.")
+            return True
+        del user_contacts[contact_name]
+        contacts[user_id] = user_contacts
+        save_contacts(contacts)
+        await update.message.reply_text(f"Contact '{contact_name}' deleted.")
+        del pending_deletecontact[user_id]
+        return True
+    return False
+
+def find_contact_username(user_id, name):
+    contacts = load_contacts().get(user_id, {})
+    name_clean = name.strip().lower().replace(' ', '')
+    # Try exact match first
+    for saved_name, contact_id in contacts.items():
+        if saved_name.strip().lower().replace(' ', '') == name_clean:
+            return contact_id
+    # Try partial match if only one contact matches
+    matches = [contact_id for saved_name, contact_id in contacts.items()
+               if name_clean in saved_name.strip().lower().replace(' ', '')]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+async def viewcontacts_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = str(update.effective_user.id)
+    contacts = load_contacts().get(user_id, {})
+    if not contacts:
+        await update.message.reply_text("You have no contacts saved.")
+        return
+    msg = "Your contacts:\n" + "\n".join([f"{name}: user ID {user_id}" for name, user_id in contacts.items()])
+    await update.message.reply_text(msg)
+
+def find_contact_username(user_id, name):
+    contacts = load_contacts().get(user_id, {})
+    name_clean = name.strip().lower().replace(' ', '')
+    # Try exact match first
+    for saved_name, contact_id in contacts.items():
+        if saved_name.strip().lower().replace(' ', '') == name_clean:
+            return contact_id
+    # Try partial match if only one contact matches
+    matches = [contact_id for saved_name, contact_id in contacts.items()
+               if name_clean in saved_name.strip().lower().replace(' ', '')]
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+async def try_relay_message(update: Update, context: ContextTypes.DEFAULT_TYPE, user_input: str):
+    # Patterns: Tell|Text|Let [contact] (that|know)? [message]
+    m = re.match(r"(?:tell|text|let)\s+([a-zA-Z0-9_ ]+?)(?:\s+that|\s+know)?\s+(.+)", user_input, re.IGNORECASE)
+    if not m:
+        return False
+    contact_name = m.group(1).strip().lower()
+    original_message = m.group(2).strip()
+    user_id = str(update.effective_user.id)
+    contacts = load_contacts()
+    contact_chat_id = find_contact_username(user_id, contact_name)
+    if not contact_chat_id:
+        await update.message.reply_text("Unable to send message at this time.")
+        return True
+    # Rewrite the message using ChatGPT
+    sender = update.effective_user.first_name or "A user"
+    zoey_prompt = (
+        f"Your user, {sender}, wants you to relay a message to their contact named {contact_name}. "
+        f"Rewrite the following message so it sounds like you are speaking directly to {contact_name}, using 'you' for the recipient, and do not quote the original message. "
+        f"Make it clear the message is from {sender}, and rephrase it naturally and personally. Original message: {original_message}"
+    )
+    zoey_message = call_openai(zoey_prompt).strip()
+    # Send the rewritten message to the contact via chat ID
+    try:
+        await context.bot.send_message(chat_id=contact_chat_id, text=zoey_message)
+        await update.message.reply_text(f"I let {contact_name} know.")
+    except Exception as e:
+        await update.message.reply_text("Unable to send message at this time.")
+    return True
+
 # 🧠 Main
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -527,6 +683,12 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast))
     app.add_handler(CommandHandler("reminders", reminders_command))
     app.add_handler(CommandHandler("commands", commands_command))
+    # Handler registrations for contact commands moved below their definitions
+# Handler registrations for contact commands (after function definitions)
+    app.add_handler(CommandHandler("addcontact", addcontact_command))
+    app.add_handler(CommandHandler("viewcontacts", viewcontacts_command))
+    app.add_handler(CommandHandler("deletecontact", deletecontact_command))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, respond))
     start_reminder_polling(app)
     print("Zoey Telegram Bot is running...")
@@ -534,3 +696,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    pass
