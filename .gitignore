@@ -1,2 +1,8 @@
 .env
-# Ignore environment files containing secrets
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+.vscode/
+fly.toml

@@ -1,10 +1,10 @@
-FROM python:3.10.13-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
 COPY . .
 
-CMD ["python", "zoey_telegram.py"]
+CMD ["python", "messaging.py"]
