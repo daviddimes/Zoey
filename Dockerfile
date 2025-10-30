@@ -7,4 +7,4 @@ RUN pip install -r requirements.txt
 
 COPY . .
 
-CMD ["python", "messaging.py"]
+CMD ["python", "simple_bot.py"]
