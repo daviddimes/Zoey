@@ -1,10 +1,9 @@
 import os
+import datetime
 from openai import OpenAI
+from reminders import add_reminder, parse_datetime_from_text
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
-# Store reminders
-reminders = []
 
 async def determine_intent(user_message):
     """Use AI to determine what the user wants to do"""
@@ -22,22 +21,96 @@ async def determine_intent(user_message):
     except:
         return 'CHAT'
 
-async def handle_reminder(user_message):
-    """Handle reminder requests"""
+async def parse_reminder_details(user_message):
+    """Use AI to extract date, time, and reminder text from user message"""
     try:
         response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Extract the reminder from this message. Respond with just the reminder text, nothing else."},
+                {
+                    "role": "system", 
+                    "content": """Extract reminder details from the user's message. Respond with JSON format:
+{
+  "reminder_text": "what to remind about (optional)",
+  "date": "YYYY-MM-DD format or 'today' or 'tomorrow'",
+  "time": "HH:MM format (24-hour)"
+}
+
+If no reminder text is specified, use "Reminder". If no date is specified, use "today". If no time is specified, use current time + 1 hour.
+
+Examples:
+"Remind me at 3pm tomorrow" -> {"reminder_text": "Reminder", "date": "tomorrow", "time": "15:00"}
+"Call mom at 2:30" -> {"reminder_text": "Call mom", "date": "today", "time": "14:30"}"""
+                },
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=50
+            max_tokens=100
         )
-        reminder_text = response.choices[0].message.content.strip()
-        reminders.append(reminder_text)
-        return f"✅ Reminder set: {reminder_text}"
+        
+        import json
+        details = json.loads(response.choices[0].message.content.strip())
+        return details
+    except Exception as e:
+        print(f"Error parsing reminder details: {e}")
+        return None
+
+def create_datetime_from_details(date_str, time_str):
+    """Convert date and time strings to datetime object"""
+    now = datetime.datetime.now()
+    
+    # Handle date
+    if date_str.lower() == "today":
+        target_date = now.date()
+    elif date_str.lower() == "tomorrow":
+        target_date = now.date() + datetime.timedelta(days=1)
+    else:
+        try:
+            target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
+        except:
+            target_date = now.date()  # Default to today
+    
+    # Handle time
+    try:
+        time_parts = time_str.split(":")
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+        target_time = datetime.time(hour, minute)
     except:
-        return "Sorry, I couldn't set that reminder."
+        # Default to 1 hour from now
+        future_time = now + datetime.timedelta(hours=1)
+        target_time = future_time.time()
+    
+    # Combine date and time
+    target_datetime = datetime.datetime.combine(target_date, target_time)
+    
+    # If the time has already passed today, move to tomorrow
+    if target_datetime <= now:
+        target_datetime += datetime.timedelta(days=1)
+    
+    return target_datetime
+
+async def handle_reminder(user_message, user_id):
+    """Handle reminder requests"""
+    try:
+        # Parse reminder details using AI
+        details = await parse_reminder_details(user_message)
+        
+        if not details:
+            return "Sorry, I couldn't understand that reminder. Try something like 'Remind me to call mom at 3pm tomorrow'"
+        
+        # Create datetime from details
+        target_datetime = create_datetime_from_details(details["date"], details["time"])
+        
+        # Add the reminder
+        add_reminder(user_id, details["reminder_text"], target_datetime)
+        
+        # Format response
+        time_str = target_datetime.strftime("%B %d at %I:%M %p")
+        return f"✅ Reminder set: '{details['reminder_text']}' on {time_str}"
+        
+    except Exception as e:
+        print(f"Error handling reminder: {e}")
+        return "Sorry, I couldn't set that reminder. Try something like 'Remind me to call mom at 3pm tomorrow'"
 
 async def handle_chat(user_message):
     """Handle regular chat requests"""
