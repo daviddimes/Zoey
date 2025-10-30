@@ -8,7 +8,7 @@ primary_region = 'dfw'
 
 [build]
 
-# Remove HTTP service config since this is a Telegram bot (background process)
+# No HTTP service needed - this is a background Telegram bot
 
 [[vm]]
   memory = '1gb'
@@ -17,3 +17,7 @@ primary_region = 'dfw'
 
 [processes]
   app = "python messaging.py"
+
+# Keep the machine running
+[deploy]
+  strategy = "immediate"
