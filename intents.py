@@ -1,14 +1,15 @@
 import os
 import datetime
-from openai import OpenAI
-from reminders import add_reminder, parse_datetime_from_text
+import json
+from openai import AsyncOpenAI
+from reminders import add_reminder
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 async def determine_intent(user_message):
     """Use AI to determine what the user wants to do"""
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are an intent classifier. Respond with ONLY one word: 'REMINDER' if the user wants to set a reminder or remember something, or 'CHAT' if they want to have a conversation or ask questions."},
@@ -24,7 +25,7 @@ async def determine_intent(user_message):
 async def parse_reminder_details(user_message):
     """Use AI to extract date, time, and reminder text from user message"""
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
@@ -47,7 +48,6 @@ Examples:
             max_tokens=100
         )
         
-        import json
         details = json.loads(response.choices[0].message.content.strip())
         return details
     except Exception as e:
@@ -115,7 +115,7 @@ async def handle_reminder(user_message, user_id):
 async def handle_chat(user_message):
     """Handle regular chat requests"""
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "You are Zoey, a helpful personal assistant. Keep responses brief and friendly."},
