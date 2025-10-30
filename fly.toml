@@ -1,29 +1,10 @@
 # fly.toml app configuration file for zoey-lw1h9w
-#
-# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
-#
-
 app = 'zoey-lw1h9w'
 primary_region = 'dfw'
 
 [build]
 
-# No HTTP service needed - this is a background Telegram bot
-
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-
-[processes]
-  app = "python messaging.py"
-
-# Keep the machine running
-[deploy]
-  strategy = "immediate"
-
-# Auto start and stop configuration
-[http_service]
-  auto_stop_machines = false
-  auto_start_machines = true
-  min_machines_running = 1

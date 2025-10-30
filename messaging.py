@@ -46,17 +46,34 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
 def main():
     global app
     
-    token = os.getenv("BOT_TOKEN")
-    app = Application.builder().token(token).build()
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    
-    # Add the reminder checking job to run every 30 seconds
-    app.job_queue.run_repeating(reminder_job, interval=30, first=10)
-    
-    print("🤖 Zoey is starting up...")
-    print("✅ Reminder system active")
-    
-    app.run_polling()
+    try:
+        token = os.getenv("BOT_TOKEN")
+        if not token:
+            print("ERROR: BOT_TOKEN environment variable not found")
+            return
+            
+        print("🤖 Zoey is starting up...")
+        print(f"Token starts with: {token[:10]}...")
+        
+        app = Application.builder().token(token).build()
+        app.add_handler(MessageHandler(filters.TEXT, handle_message))
+        
+        # Add the reminder checking job to run every 30 seconds
+        app.job_queue.run_repeating(reminder_job, interval=30, first=10)
+        
+        print("✅ Reminder system active")
+        print("✅ Starting polling...")
+        
+        app.run_polling()
+        
+    except Exception as e:
+        print(f"FATAL ERROR: {e}")
+        import traceback
+        traceback.print_exc()
+        # Keep the container running even if there's an error
+        import time
+        print("Keeping container alive for debugging...")
+        time.sleep(3600)  # Sleep for 1 hour
 
 if __name__ == '__main__':
     main()
