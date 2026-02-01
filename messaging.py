@@ -55,25 +55,37 @@ def main():
         print("🤖 Zoey is starting up...")
         print(f"Token starts with: {token[:10]}...")
         
+        # Build application - run_webhook will create necessary components
         app = Application.builder().token(token).build()
         app.add_handler(MessageHandler(filters.TEXT, handle_message))
         
-        # Add the reminder checking job to run every 30 seconds
+        # Add the reminder checking job - run_webhook will initialize job_queue
         app.job_queue.run_repeating(reminder_job, interval=30, first=10)
         
         print("✅ Reminder system active")
-        print("✅ Starting polling...")
+        print("✅ Starting webhook server on 0.0.0.0:8080...")
         
-        app.run_polling()
+        # Use webhooks for Fly.io deployment
+        # run_webhook handles initialization internally
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=8080,
+            webhook_url=f"https://zoey-9wkdiq.fly.dev/{token}",
+            url_path=token,
+            secret_token=None,
+            cert=None,
+            key=None,
+            bootstrap_retries=0,
+            max_connections=40,
+            allowed_updates=None,
+            ip_address=None,
+            drop_pending_updates=None
+        )
         
     except Exception as e:
         print(f"FATAL ERROR: {e}")
         import traceback
         traceback.print_exc()
-        # Keep the container running even if there's an error
-        import time
-        print("Keeping container alive for debugging...")
-        time.sleep(3600)  # Sleep for 1 hour
 
 if __name__ == '__main__':
     main()
