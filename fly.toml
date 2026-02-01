@@ -1,10 +1,23 @@
-# fly.toml app configuration file for zoey-lw1h9w
-app = 'zoey-lw1h9w'
-primary_region = 'dfw'
+# fly.toml app configuration file generated for zoey-9wkdiq on 2026-02-01T20:09:03Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'zoey-9wkdiq'
+primary_region = 'ord'
 
 [build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'stop'
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ['app']
 
 [[vm]]
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+  memory_mb = 256
