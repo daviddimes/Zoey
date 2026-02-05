@@ -12,7 +12,7 @@ async def determine_intent(user_message):
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an intent classifier. Respond with ONLY one word: 'REMINDER' if the user wants to set a reminder or remember something, or 'CHAT' if they want to have a conversation or ask questions."},
+                {"role": "system", "content": "You are an intent classifier. Analyze whether the user wants to take an action or just communicate. Respond with ONLY one word: 'REMINDER' if the user wants you to remember something and notify them later, or 'CHAT' if they are sharing information, asking questions, or conversing."},
                 {"role": "user", "content": user_message}
             ],
             max_tokens=10
