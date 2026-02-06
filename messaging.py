@@ -1,12 +1,14 @@
 import os
 import asyncio
+from dotenv import load_dotenv
+
+# Load environment variables before importing modules that need them
+load_dotenv()
+
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from dotenv import load_dotenv
 from intents import determine_intent, handle_reminder, handle_chat
 from reminders import get_due_reminders
-
-load_dotenv()
 
 # Global application reference for sending reminders
 app = None

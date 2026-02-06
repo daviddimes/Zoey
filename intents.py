@@ -12,10 +12,11 @@ async def determine_intent(user_message):
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are an intent classifier. Analyze whether the user wants to take an action or just communicate. Respond with ONLY one word: 'REMINDER' if the user wants you to remember something and notify them later, or 'CHAT' if they are sharing information, asking questions, or conversing."},
+                {"role": "system", "content": "Classify intent. Respond with only REMINDER or CHAT.\n\nREMINDER = User wants to receive a notification later\nCHAT = Everything else (questions, statements, advice, conversation)\n\nExamples:\n'What's a good drink at Starbucks?' → CHAT\n'Recommend a book' → CHAT\n'I'm on PTO today' → CHAT\n'Tell me about yourself' → CHAT\n'What time is it' → CHAT\n'Remind me to call mom at 3pm' → REMINDER\n'Set a reminder for my meeting tomorrow' → REMINDER\n'Don't let me forget to buy milk' → REMINDER\n'Ping me in an hour' → REMINDER\n'Alert me when it's 5pm' → REMINDER"},
                 {"role": "user", "content": user_message}
             ],
-            max_tokens=10
+            max_tokens=10,
+            temperature=0
         )
         intent = response.choices[0].message.content.strip().upper()
         return intent if intent in ['REMINDER', 'CHAT'] else 'CHAT'
