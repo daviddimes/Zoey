@@ -26,23 +26,28 @@ async def determine_intent(user_message):
 async def parse_reminder_details(user_message):
     """Use AI to extract date, time, and reminder text from user message"""
     try:
+        now = datetime.datetime.now()
+        current_time_info = f"Current date and time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')})"
+        
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system", 
-                    "content": """Extract reminder details from the user's message. Respond with JSON format:
-{
+                    "content": f"""Extract reminder details from the user's message. Respond with JSON format:
+{{
   "reminder_text": "what to remind about (optional)",
   "date": "YYYY-MM-DD format or 'today' or 'tomorrow'",
   "time": "HH:MM format (24-hour)"
-}
+}}
+
+{current_time_info}
 
 If no reminder text is specified, use "Reminder". If no date is specified, use "today". If no time is specified, use current time + 1 hour.
 
 Examples:
-"Remind me at 3pm tomorrow" -> {"reminder_text": "Reminder", "date": "tomorrow", "time": "15:00"}
-"Call mom at 2:30" -> {"reminder_text": "Call mom", "date": "today", "time": "14:30"}"""
+"Remind me at 3pm tomorrow" -> {{"reminder_text": "Reminder", "date": "tomorrow", "time": "15:00"}}
+"Call mom at 2:30" -> {{"reminder_text": "Call mom", "date": "today", "time": "14:30"}}"""
                 },
                 {"role": "user", "content": user_message}
             ],
@@ -68,7 +73,12 @@ def create_datetime_from_details(date_str, time_str):
         try:
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         except:
-            target_date = now.date()  # Default to today
+            target_  File "/home/ddahl/zoey/intents.py", line 7, in <module>
+    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ddahl/zoey/.venv/lib/python3.11/site-packages/openai/_client.py", line 319, in __init__
+    raise OpenAIError(
+openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variabledate = now.date()  # Default to today
     
     # Handle time
     try:
@@ -116,10 +126,13 @@ async def handle_reminder(user_message, user_id):
 async def handle_chat(user_message):
     """Handle regular chat requests"""
     try:
+        now = datetime.datetime.now()
+        current_time_info = f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}"
+        
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "You are Zoey, a helpful personal assistant. Keep responses brief and friendly."},
+                {"role": "system", "content": f"You are Zoey, a helpful personal assistant. Keep responses brief and friendly.\n\n{current_time_info}"},
                 {"role": "user", "content": user_message}
             ],
             max_tokens=100
