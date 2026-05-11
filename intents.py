@@ -12,9 +12,15 @@ from reminders import (
     delete_reminder,
 )
 
+# Global client instance - reuse across all calls to avoid connection issues
+_client = None
+
 def get_client():
-    """Create and return AsyncOpenAI client lazily."""
-    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    """Get or create AsyncOpenAI client."""
+    global _client
+    if _client is None:
+        _client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    return _client
 
 async def determine_intent(user_message):
     """Use AI to determine what the user wants to do."""
