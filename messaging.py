@@ -1,4 +1,6 @@
 import os
+import sys
+import argparse
 import asyncio
 from dotenv import load_dotenv
 
@@ -7,8 +9,15 @@ load_dotenv()
 
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from intents import determine_intent, handle_reminder, handle_chat
-from reminders import get_due_reminders
+from intents import (
+    determine_intent,
+    handle_reminder,
+    handle_chat,
+    handle_list_reminders,
+    handle_edit_reminder,
+    handle_delete_reminder,
+)
+from reminders import get_due_reminders, init_db
 
 # Global application reference for sending reminders
 app = None
@@ -16,22 +25,27 @@ app = None
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     user_id = update.effective_user.id
-    
-    # Determine what the user wants
+
     intent = await determine_intent(user_message)
-    
+
     if intent == 'REMINDER':
         response = await handle_reminder(user_message, user_id)
-    else:  # CHAT
+    elif intent == 'LIST_REMINDERS':
+        response = await handle_list_reminders(user_id)
+    elif intent == 'EDIT_REMINDER':
+        response = await handle_edit_reminder(user_message, user_id)
+    elif intent == 'DELETE_REMINDER':
+        response = await handle_delete_reminder(user_message, user_id)
+    else:
         response = await handle_chat(user_message)
-    
+
     await update.message.reply_text(response)
 
 async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
-    """Job that runs every 30 seconds to check for due reminders"""
+    """Job that runs every 30 seconds to check for due reminders."""
     try:
-        due_reminders = get_due_reminders()
-        
+        due_reminders = await get_due_reminders()
+
         for user_id, reminder_text in due_reminders:
             try:
                 await context.bot.send_message(
@@ -41,53 +55,55 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
                 print(f"Sent reminder to user {user_id}: {reminder_text}")
             except Exception as e:
                 print(f"Failed to send reminder to user {user_id}: {e}")
-                
+
     except Exception as e:
         print(f"Error in reminder job: {e}")
 
+
 def main():
     global app
-    
+
+    parser = argparse.ArgumentParser(description='Zoey Telegram bot')
+    parser.add_argument('--polling', action='store_true', help='Run in polling mode locally')
+    args = parser.parse_args()
+
     try:
-        token = os.getenv("BOT_TOKEN")
+        token = os.getenv('BOT_TOKEN')
         if not token:
-            print("ERROR: BOT_TOKEN environment variable not found")
+            print('ERROR: BOT_TOKEN environment variable not found')
             return
-            
-        print("🤖 Zoey is starting up...")
-        print(f"Token starts with: {token[:10]}...")
-        
-        # Build application - run_webhook will create necessary components
+
+        print('🤖 Zoey is starting up...')
+        print(f'Token starts with: {token[:10]}...')
+
+        asyncio.run(init_db())
+
         app = Application.builder().token(token).build()
         app.add_handler(MessageHandler(filters.TEXT, handle_message))
-        
-        # Add the reminder checking job - run_webhook will initialize job_queue
         app.job_queue.run_repeating(reminder_job, interval=30, first=10)
-        
-        print("✅ Reminder system active")
-        print("✅ Starting webhook server on 0.0.0.0:8080...")
-        
-        # Use webhooks for Fly.io deployment
-        # run_webhook handles initialization internally
-        app.run_webhook(
-            listen="0.0.0.0",
-            port=8080,
-            webhook_url=f"https://zoey-9wkdiq.fly.dev/{token}",
-            url_path=token,
-            secret_token=None,
-            cert=None,
-            key=None,
-            bootstrap_retries=0,
-            max_connections=40,
-            allowed_updates=None,
-            ip_address=None,
-            drop_pending_updates=None
-        )
-        
+
+        if args.polling:
+            print('✅ Reminder system active')
+            print('✅ Starting polling mode...')
+            app.run_polling()
+        else:
+            webhook_url = os.getenv('WEBHOOK_URL') or f'https://zoey-9wkdiq.fly.dev/{token}'
+            print('✅ Reminder system active')
+            print('✅ Starting webhook server on 0.0.0.0:8080...')
+            app.run_webhook(
+                listen='0.0.0.0',
+                port=8080,
+                webhook_url=webhook_url,
+                url_path=token,
+                bootstrap_retries=0,
+                max_connections=40,
+            )
+
     except Exception as e:
-        print(f"FATAL ERROR: {e}")
+        print(f'FATAL ERROR: {e}')
         import traceback
         traceback.print_exc()
+
 
 if __name__ == '__main__':
     main()

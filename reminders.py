@@ -1,10 +1,11 @@
+import os
 import asyncio
 import aiosqlite
 import datetime
 import pytz
 from typing import List, Tuple, Optional, Dict
 
-DB_PATH = 'zoey.db'
+DB_PATH = os.getenv('DB_PATH', '/data/zoey.db')
 
 async def init_db():
     """Initialize the database and create tables."""
@@ -118,8 +119,11 @@ async def edit_reminder(user_id: int, reminder_id: int, new_text: Optional[str] 
         updates.append('target_datetime = ?')
         params.append(new_datetime.astimezone(pytz.UTC).isoformat())
     if new_repeat is not None:
-        updates.append('repeat_interval = ?')
-        params.append(new_repeat)
+        if new_repeat == 'none':
+            updates.append('repeat_interval = NULL')
+        else:
+            updates.append('repeat_interval = ?')
+            params.append(new_repeat)
     if not updates:
         return False
     params.append(reminder_id)
