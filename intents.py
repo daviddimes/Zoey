@@ -12,11 +12,14 @@ from reminders import (
     delete_reminder,
 )
 
-client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+def get_client():
+    """Create and return AsyncOpenAI client lazily."""
+    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 async def determine_intent(user_message):
     """Use AI to determine what the user wants to do."""
     try:
+        client = get_client()
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -43,6 +46,7 @@ async def determine_intent(user_message):
 async def parse_reminder_details(user_message, user_id):
     """Use AI to extract date, time, reminder text, repeat pattern, and timezone."""
     try:
+        client = get_client()
         now = datetime.datetime.now()
         current_time_info = f"Current date and time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')})"
         user_tz = await get_user_timezone(user_id)
@@ -69,6 +73,7 @@ async def parse_reminder_details(user_message, user_id):
 async def parse_reminder_edit_details(user_message, user_id):
     """Use AI to extract edit details from a reminder update request."""
     try:
+        client = get_client()
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -89,6 +94,7 @@ async def parse_reminder_edit_details(user_message, user_id):
 async def parse_reminder_delete_details(user_message, user_id):
     """Use AI to extract the reminder ID from a delete request."""
     try:
+        client = get_client()
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
@@ -275,6 +281,7 @@ async def handle_delete_reminder(user_message, user_id):
 async def handle_chat(user_message):
     """Handle regular chat requests."""
     try:
+        client = get_client()
         now = datetime.datetime.now()
         current_time_info = f"Current date and time: {now.strftime('%A, %B %d, %Y at %I:%M %p')}"
 

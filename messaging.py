@@ -60,7 +60,14 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
         print(f"Error in reminder job: {e}")
 
 
-async def main():
+async def post_init(application: Application) -> None:
+    """Initialize the database when the application starts."""
+    print('Initializing database...')
+    await init_db()
+    print('Database initialized.')
+
+
+def main():
     global app
 
     parser = argparse.ArgumentParser(description='Zoey Telegram bot')
@@ -76,21 +83,23 @@ async def main():
         print('🤖 Zoey is starting up...')
         print(f'Token starts with: {token[:10]}...')
 
-        await init_db()
-
-        app = Application.builder().token(token).build()
+        print('Building Telegram application...')
+        app = Application.builder().token(token).post_init(post_init).build()
         app.add_handler(MessageHandler(filters.TEXT, handle_message))
-        app.job_queue.run_repeating(reminder_job, interval=30, first=10)
+        app.job_queue.run_repeating(reminder_job, interval=30, first=60)
+        print('Application built and handlers added.')
 
         if args.polling:
             print('✅ Reminder system active')
             print('✅ Starting polling mode...')
-            await app.run_polling()
+            app.run_polling()
         else:
             webhook_url = os.getenv('WEBHOOK_URL') or f'https://zoey-9wkdiq.fly.dev/{token}'
-            print('✅ Reminder system active')
+            print(f'✅ Reminder system active')
+            print(f'✅ Webhook URL: {webhook_url}')
+            print(f'✅ URL path: {token}')
             print('✅ Starting webhook server on 0.0.0.0:8080...')
-            await app.run_webhook(
+            app.run_webhook(
                 listen='0.0.0.0',
                 port=8080,
                 webhook_url=webhook_url,
@@ -106,4 +115,4 @@ async def main():
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()
