@@ -2,7 +2,7 @@ import os
 import datetime
 import json
 from openai import AsyncOpenAI
-from reminders import add_reminder
+from reminders import add_reminder, get_user_timezone, list_reminders, edit_reminder, delete_reminder
 
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
@@ -12,22 +12,24 @@ async def determine_intent(user_message):
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
-                {"role": "system", "content": "Classify intent. Respond with only REMINDER or CHAT.\n\nREMINDER = User wants to receive a notification later\nCHAT = Everything else (questions, statements, advice, conversation)\n\nExamples:\n'What's a good drink at Starbucks?' → CHAT\n'Recommend a book' → CHAT\n'I'm on PTO today' → CHAT\n'Tell me about yourself' → CHAT\n'What time is it' → CHAT\n'Remind me to call mom at 3pm' → REMINDER\n'Set a reminder for my meeting tomorrow' → REMINDER\n'Don't let me forget to buy milk' → REMINDER\n'Ping me in an hour' → REMINDER\n'Alert me when it's 5pm' → REMINDER"},
+                {"role": "system", "content": "Classify intent. Respond with only one word: REMINDER, LIST_REMINDERS, EDIT_REMINDER, DELETE_REMINDER, or CHAT.\n\nREMINDER = User wants to create a new reminder\nLIST_REMINDERS = User wants to see their existing reminders\nEDIT_REMINDER = User wants to modify an existing reminder\nDELETE_REMINDER = User wants to remove an existing reminder\nCHAT = Everything else (questions, statements, advice, conversation)\n\nExamples:\n'What's a good drink at Starbucks?' → CHAT\n'Recommend a book' → CHAT\n'I'm on PTO today' → CHAT\n'Tell me about yourself' → CHAT\n'What time is it' → CHAT\n'Remind me to call mom at 3pm' → REMINDER\n'Set a reminder for my meeting tomorrow' → REMINDER\n'Don't let me forget to buy milk' → REMINDER\n'Ping me in an hour' → REMINDER\n'Alert me when it's 5pm' → REMINDER\n'Show me my reminders' → LIST_REMINDERS\n'List my reminders' → LIST_REMINDERS\n'What reminders do I have?' → LIST_REMINDERS\n'Edit reminder 1 to call dad' → EDIT_REMINDER\n'Change my 3pm reminder' → EDIT_REMINDER\n'Delete reminder 2' → DELETE_REMINDER\n'Remove the milk reminder' → DELETE_REMINDER"},
                 {"role": "user", "content": user_message}
             ],
             max_tokens=10,
             temperature=0
         )
         intent = response.choices[0].message.content.strip().upper()
-        return intent if intent in ['REMINDER', 'CHAT'] else 'CHAT'
+        return intent if intent in ['REMINDER', 'LIST_REMINDERS', 'EDIT_REMINDER', 'DELETE_REMINDER', 'CHAT'] else 'CHAT'
     except:
         return 'CHAT'
 
-async def parse_reminder_details(user_message):
+async def parse_reminder_details(user_message, user_id):
     """Use AI to extract date, time, and reminder text from user message"""
     try:
         now = datetime.datetime.now()
         current_time_info = f"Current date and time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')})"
+        user_tz = await get_user_timezone(user_id)
+        tz_info = f"User timezone: {user_tz}"
         
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -38,16 +40,20 @@ async def parse_reminder_details(user_message):
 {{
   "reminder_text": "what to remind about (optional)",
   "date": "YYYY-MM-DD format or 'today' or 'tomorrow'",
-  "time": "HH:MM format (24-hour)"
+  "time": "HH:MM format (24-hour)",
+  "repeat": "daily", "weekly", or null for one-time reminders
 }}
 
 {current_time_info}
+{tz_info}
 
-If no reminder text is specified, use "Reminder". If no date is specified, use "today". If no time is specified, use current time + 1 hour.
+If no reminder text is specified, use "Reminder". If no date is specified, use "today". If no time is specified, use current time + 1 hour. If no repeat is specified, use null.
 
 Examples:
-"Remind me at 3pm tomorrow" -> {{"reminder_text": "Reminder", "date": "tomorrow", "time": "15:00"}}
-"Call mom at 2:30" -> {{"reminder_text": "Call mom", "date": "today", "time": "14:30"}}"""
+"Remind me at 3pm tomorrow" -> {{"reminder_text": "Reminder", "date": "tomorrow", "time": "15:00", "repeat": null}}
+"Call mom at 2:30" -> {{"reminder_text": "Call mom", "date": "today", "time": "14:30", "repeat": null}}
+"Remind me daily to take my meds at 8am" -> {{"reminder_text": "Take my meds", "date": "today", "time": "08:00", "repeat": "daily"}}
+"Set a weekly reminder for team meeting every Monday at 10am" -> {{"reminder_text": "Team meeting", "date": "2026-05-12", "time": "10:00", "repeat": "weekly"}}"""
                 },
                 {"role": "user", "content": user_message}
             ],
@@ -73,12 +79,7 @@ def create_datetime_from_details(date_str, time_str):
         try:
             target_date = datetime.datetime.strptime(date_str, "%Y-%m-%d").date()
         except:
-            target_  File "/home/ddahl/zoey/intents.py", line 7, in <module>
-    client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/ddahl/zoey/.venv/lib/python3.11/site-packages/openai/_client.py", line 319, in __init__
-    raise OpenAIError(
-openai.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variabledate = now.date()  # Default to today
+            target_date = now.date()  # Default to today
     
     # Handle time
     try:
