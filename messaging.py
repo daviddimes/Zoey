@@ -60,7 +60,7 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
         print(f"Error in reminder job: {e}")
 
 
-def main():
+async def main():
     global app
 
     parser = argparse.ArgumentParser(description='Zoey Telegram bot')
@@ -76,7 +76,7 @@ def main():
         print('🤖 Zoey is starting up...')
         print(f'Token starts with: {token[:10]}...')
 
-        asyncio.run(init_db())
+        await init_db()
 
         app = Application.builder().token(token).build()
         app.add_handler(MessageHandler(filters.TEXT, handle_message))
@@ -85,12 +85,12 @@ def main():
         if args.polling:
             print('✅ Reminder system active')
             print('✅ Starting polling mode...')
-            app.run_polling()
+            await app.run_polling()
         else:
             webhook_url = os.getenv('WEBHOOK_URL') or f'https://zoey-9wkdiq.fly.dev/{token}'
             print('✅ Reminder system active')
             print('✅ Starting webhook server on 0.0.0.0:8080...')
-            app.run_webhook(
+            await app.run_webhook(
                 listen='0.0.0.0',
                 port=8080,
                 webhook_url=webhook_url,
@@ -106,4 +106,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

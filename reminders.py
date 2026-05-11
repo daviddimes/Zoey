@@ -5,7 +5,7 @@ import datetime
 import pytz
 from typing import List, Tuple, Optional, Dict
 
-DB_PATH = os.getenv('DB_PATH', '/data/zoey.db')
+DB_PATH = os.getenv('DB_PATH', 'zoey.db')
 
 async def init_db():
     """Initialize the database and create tables."""
@@ -16,7 +16,7 @@ async def init_db():
                 user_id INTEGER NOT NULL,
                 reminder_text TEXT NOT NULL,
                 target_datetime TEXT NOT NULL,  -- UTC ISO format (e.g., '2026-05-12T15:30:00')
-                repeat_interval TEXT CHECK(repeat_interval IN ('daily', 'weekly')) OR repeat_interval IS NULL,
+                repeat_interval TEXT CHECK(repeat_interval IS NULL OR repeat_interval IN ('daily', 'weekly')),
                 timezone TEXT NOT NULL DEFAULT 'UTC',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id, reminder_text)  -- Prevent duplicate texts per user
