@@ -53,7 +53,7 @@ def build_google_health_auth_url(user_id):
         "state": str(user_id),
     }
 
-    return "https://accounts.google.com/o/oauth2/auth?" + urlencode(params)
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
 
 
 def parse_health_callback_params(query_string):
@@ -149,7 +149,7 @@ def exchange_google_code_for_token(code, redirect_uri, user_id):
     """Exchange an OAuth code for a token payload and store it for later use."""
     client_id = os.getenv("GOOGLE_HEALTH_CLIENT_ID") or os.getenv("GOOGLE_CLIENT_ID")
     client_secret = os.getenv("GOOGLE_HEALTH_CLIENT_SECRET") or os.getenv("GOOGLE_CLIENT_SECRET")
-    token_uri = os.getenv("GOOGLE_HEALTH_TOKEN_URI") or "https://oauth2.googleapis.com/token"
+    token_uri = "https://oauth2.googleapis.com/token"
 
     if not code or not client_id:
         payload = {"error": "missing_google_credentials"}
@@ -444,3 +444,4 @@ def start_health_callback_server(host="0.0.0.0", port=None, bot=None):
     start_health_callback_server._thread = thread
     start_health_callback_server._server = server
     return thread
+urce .venv/bin/activate && python -m py_compile messaging.py health.py intents.py reminders.py
