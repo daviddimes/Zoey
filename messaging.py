@@ -1,30 +1,83 @@
-import os
-import sys
 import argparse
-import asyncio
+import os
+
 from dotenv import load_dotenv
 
 # Load environment variables before importing modules that need them
 load_dotenv()
 
-from telegram import Update
-from telegram.ext import Application, MessageHandler, filters, ContextTypes
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    Application,
+    CallbackQueryHandler,
+    CommandHandler,
+    ContextTypes,
+    MessageHandler,
+    filters,
+)
+
+from health import (
+    build_google_health_auth_url,
+    build_health_dashboard,
+    is_health_connected,
+    fetch_health_metrics,
+    start_health_callback_server,
+)
 from intents import (
     determine_intent,
-    handle_reminder,
     handle_chat,
-    handle_list_reminders,
-    handle_edit_reminder,
     handle_delete_reminder,
+    handle_edit_reminder,
+    handle_list_reminders,
+    handle_reminder,
 )
 from reminders import get_due_reminders, init_db
 
 # Global application reference for sending reminders
 app = None
 
+
+async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Send the main welcome message with the Health button."""
+    keyboard = [[InlineKeyboardButton("Health", callback_data="health")]]
+    await update.message.reply_text(
+        "Hello! I can help with reminders and your health dashboard.",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+    )
+
+
+async def handle_health_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle the Health button and route the user to login or dashboard."""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = update.effective_user.id
+    if not is_health_connected(user_id):
+        auth_url = build_google_health_auth_url(user_id)
+        keyboard = [[InlineKeyboardButton("Connect Google Health", url=auth_url)]]
+        message = (
+            "To view your health stats, connect your Google Health account first.\n\n"
+            "Tap the button below to continue."
+        )
+        await query.edit_message_text(message, reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+
+    metrics = fetch_health_metrics(user_id)
+    await query.edit_message_text(build_health_dashboard(metrics))
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_message = update.message.text
     user_id = update.effective_user.id
+
+    normalized_message = (user_message or "").strip().lower()
+    if normalized_message in {"health", "show health", "health dashboard", "dashboard"}:
+        keyboard = [[InlineKeyboardButton("Health", callback_data="health")]]
+        await update.message.reply_text(
+            "Here is your health dashboard shortcut.",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+        )
+        return
 
     intent = await determine_intent(user_message)
 
@@ -41,6 +94,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(response)
 
+
 async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
     """Job that runs every 30 seconds to check for due reminders."""
     try:
@@ -50,14 +104,14 @@ async def reminder_job(context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=f"⏰ Reminder: {reminder_text}"
+                    text=f"⏰ Reminder: {reminder_text}",
                 )
                 print(f"Sent reminder to user {user_id}: {reminder_text}")
-            except Exception as e:
-                print(f"Failed to send reminder to user {user_id}: {e}")
+            except Exception as exc:
+                print(f"Failed to send reminder to user {user_id}: {exc}")
 
-    except Exception as e:
-        print(f"Error in reminder job: {e}")
+    except Exception as exc:
+        print(f"Error in reminder job: {exc}")
 
 
 async def post_init(application: Application) -> None:
@@ -85,6 +139,12 @@ def main():
 
         print('Building Telegram application...')
         app = Application.builder().token(token).post_init(post_init).build()
+        try:
+            start_health_callback_server(bot=getattr(app, 'bot', None))
+        except Exception as exc:
+            print(f'Health callback server startup warning: {exc}')
+        app.add_handler(CommandHandler('start', start_command))
+        app.add_handler(CallbackQueryHandler(handle_health_button, pattern='^health$'))
         app.add_handler(MessageHandler(filters.TEXT, handle_message))
         app.job_queue.run_repeating(reminder_job, interval=30, first=60)
         print('Application built and handlers added.')
@@ -108,8 +168,8 @@ def main():
                 max_connections=40,
             )
 
-    except Exception as e:
-        print(f'FATAL ERROR: {e}')
+    except Exception as exc:
+        print(f'FATAL ERROR: {exc}')
         import traceback
         traceback.print_exc()
 

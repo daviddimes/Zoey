@@ -22,6 +22,19 @@ def get_client():
         _client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     return _client
 
+def get_central_time_context():
+    """Get current Central Time with timezone offset information."""
+    ct_tz = pytz.timezone('America/Chicago')
+    now_ct = datetime.datetime.now(ct_tz)
+    offset_str = now_ct.strftime('%z')  # e.g., -0500 or -0600
+    offset_formatted = f"{offset_str[:3]}:{offset_str[3:]}"  # e.g., -05:00 or -06:00
+    return {
+        "datetime_str": now_ct.strftime('%Y-%m-%d %H:%M'),
+        "day_name": now_ct.strftime('%A'),
+        "timezone_name": "America/Chicago (Central Time)",
+        "offset": offset_formatted
+    }
+
 async def determine_intent(user_message):
     """Use AI to determine what the user wants to do."""
     try:
@@ -53,17 +66,15 @@ async def parse_reminder_details(user_message, user_id):
     """Use AI to extract date, time, reminder text, repeat pattern, and timezone."""
     try:
         client = get_client()
-        now = datetime.datetime.now()
-        current_time_info = f"Current date and time: {now.strftime('%Y-%m-%d %H:%M')} ({now.strftime('%A')})"
-        user_tz = await get_user_timezone(user_id)
-        tz_info = f"User timezone: {user_tz}"
+        ct_context = get_central_time_context()
+        current_time_info = f"Current date and time (Central Time, UTC{ct_context['offset']}): {ct_context['datetime_str']} ({ct_context['day_name']})"
 
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": f"""Extract reminder details from the user's message. Respond with JSON only, with no surrounding markdown. Use this schema:\n{{\n  \"reminder_text\": \"what to remind about\",\n  \"date\": \"YYYY-MM-DD or 'today' or 'tomorrow'\",\n  \"time\": \"HH:MM (24-hour)\",\n  \"repeat\": \"daily\", \"weekly\", or null,\n  \"timezone\": \"IANA timezone name like America/New_York or null\"\n}}\n{current_time_info}\n{tz_info}\nIf no reminder text is specified, use \"Reminder\". If no date is specified, use \"today\". If no time is specified, use current time + 1 hour in the user's timezone. If no repeat is specified, use null. If no timezone is explicitly specified, use null.\n\nExamples:\n\"Remind me at 3pm tomorrow\" -> {{\"reminder_text\": \"Reminder\", \"date\": \"tomorrow\", \"time\": \"15:00\", \"repeat\": null, \"timezone\": null}}\n\"Call mom at 2:30\" -> {{\"reminder_text\": \"Call mom\", \"date\": \"today\", \"time\": \"14:30\", \"repeat\": null, \"timezone\": null}}\n\"Remind me daily to take my meds at 8am\" -> {{\"reminder_text\": \"Take my meds\", \"date\": \"today\", \"time\": \"08:00\", \"repeat\": \"daily\", \"timezone\": null}}\n\"Set a weekly reminder for team meeting every Monday at 10am\" -> {{\"reminder_text\": \"Team meeting\", \"date\": \"2026-05-12\", \"time\": \"10:00\", \"repeat\": \"weekly\", \"timezone\": null}}\n\"Set a reminder for 5pm Eastern\" -> {{\"reminder_text\": \"Reminder\", \"date\": \"today\", \"time\": \"17:00\", \"repeat\": null, \"timezone\": \"America/New_York\"}}"""
+                    "content": f"""Extract reminder details from the user's message. Respond with JSON only, with no surrounding markdown. Use this schema:\n{{\n  \"reminder_text\": \"what to remind about\",\n  \"date\": \"YYYY-MM-DD or 'today' or 'tomorrow'\",\n  \"time\": \"HH:MM (24-hour)\",\n  \"repeat\": \"daily\", \"weekly\", or null,\n  \"timezone\": \"IANA timezone name like America/New_York or null\"\n}}\n{current_time_info}\nAll times should be interpreted as Central Time unless otherwise specified.\nIf no reminder text is specified, use \"Reminder\". If no date is specified, use \"today\". If no time is specified, use current time + 1 hour. If no repeat is specified, use null. If no timezone is explicitly specified, use null.\n\nExamples:\n\"Remind me in 20 minutes\" -> {{\"reminder_text\": \"Reminder\", \"date\": \"today\", \"time\": \"HH:MM (20 mins from now in CT)\", \"repeat\": null, \"timezone\": null}}\n\"Remind me at 3pm tomorrow\" -> {{\"reminder_text\": \"Reminder\", \"date\": \"tomorrow\", \"time\": \"15:00\", \"repeat\": null, \"timezone\": null}}\n\"Call mom at 2:30\" -> {{\"reminder_text\": \"Call mom\", \"date\": \"today\", \"time\": \"14:30\", \"repeat\": null, \"timezone\": null}}\n\"Remind me daily to take my meds at 8am\" -> {{\"reminder_text\": \"Take my meds\", \"date\": \"today\", \"time\": \"08:00\", \"repeat\": \"daily\", \"timezone\": null}}"""
                 },
                 {"role": "user", "content": user_message},
             ],
@@ -80,12 +91,15 @@ async def parse_reminder_edit_details(user_message, user_id):
     """Use AI to extract edit details from a reminder update request."""
     try:
         client = get_client()
+        ct_context = get_central_time_context()
+        current_time_info = f"Current date and time (Central Time, UTC{ct_context['offset']}): {ct_context['datetime_str']} ({ct_context['day_name']})"
+
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "Extract reminder edit details from the user's message. Respond with JSON only, using this schema:\n{\n  \"reminder_id\": integer or null,\n  \"new_text\": string or null,\n  \"new_date\": \"YYYY-MM-DD\" or 'today' or 'tomorrow' or null,\n  \"new_time\": \"HH:MM\" or null,\n  \"new_repeat\": \"daily\" or \"weekly\" or \"none\" or null\n}"
+                    "content": f"""Extract reminder edit details from the user's message. Respond with JSON only, using this schema:\n{{\n  \"reminder_id\": integer or null,\n  \"new_text\": string or null,\n  \"new_date\": \"YYYY-MM-DD\" or 'today' or 'tomorrow' or null,\n  \"new_time\": \"HH:MM\" or null,\n  \"new_repeat\": \"daily\" or \"weekly\" or \"none\" or null\n}}\n{current_time_info}\nAll times should be interpreted as Central Time unless otherwise specified."""
                 },
                 {"role": "user", "content": user_message}
             ],
@@ -101,12 +115,15 @@ async def parse_reminder_delete_details(user_message, user_id):
     """Use AI to extract the reminder ID from a delete request."""
     try:
         client = get_client()
+        ct_context = get_central_time_context()
+        current_time_info = f"Current date and time (Central Time, UTC{ct_context['offset']}): {ct_context['datetime_str']} ({ct_context['day_name']})"
+
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {
                     "role": "system",
-                    "content": "Extract the reminder ID from the user's message. Respond with JSON only, using this schema:\n{\n  \"reminder_id\": integer or null\n}"
+                    "content": f"""Extract the reminder ID from the user's message. Respond with JSON only, using this schema:\n{{\n  \"reminder_id\": integer or null\n}}\n{current_time_info}"""
                 },
                 {"role": "user", "content": user_message}
             ],
